@@ -4,21 +4,23 @@ set +e
 mkdir -p /var/www/hls /run
 
 APP_PORT="${PORT:-8080}"
-echo "Configuring Nginx on port: $APP_PORT"
+echo "Configuring Nginx on port: $APP_PORT and 8080..."
 
-# Configure nginx with dynamic port if placeholder exists
-if grep -q "PORT_PLACEHOLDER" /etc/nginx/nginx.conf; then
+# If PORT is different from 8080 and 80, replace placeholder, otherwise clean it
+if [ "$APP_PORT" != "8080" ] && [ "$APP_PORT" != "80" ]; then
     sed -i "s/PORT_PLACEHOLDER/$APP_PORT/g" /etc/nginx/nginx.conf
+else
+    sed -i "/PORT_PLACEHOLDER/d" /etc/nginx/nginx.conf
 fi
 
 # Start Nginx in background
 nginx -g 'daemon on;'
 
-echo "Nginx started on port $APP_PORT..."
+echo "Nginx started successfully..."
 
 STREAM_SOURCE=${STREAM_SOURCE:-"http://stream.radiojar.com/c1wchedg76bwv"}
 
-# Loop ffmpeg indefinitely, even if errors occur
+# Loop ffmpeg indefinitely
 while true; do
     echo "[$(date)] Starting FFmpeg HLS transcode from: $STREAM_SOURCE"
     
