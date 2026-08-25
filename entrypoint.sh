@@ -1,8 +1,10 @@
 #!/bin/bash
-set -e
+
+# Create necessary directories
+mkdir -p /var/www/hls /run/nginx
 
 # Start nginx in background
-nginx &
+nginx
 
 echo "Nginx started on port 8080..."
 
@@ -20,8 +22,9 @@ while true; do
         -hls_time 4 \
         -hls_list_size 6 \
         -hls_flags delete_segments+append_list+omit_endlist \
-        -hls_segment_type aac \
-        -hls_segment_filename '/var/www/hls/segment_%05d.aac' \
+        -hls_segment_type fmp4 \
+        -hls_fmp4_init_filename 'init.mp4' \
+        -hls_segment_filename '/var/www/hls/segment_%05d.m4s' \
         /var/www/hls/live.m3u8
         
     echo "FFmpeg exited, restarting in 2 seconds..."
