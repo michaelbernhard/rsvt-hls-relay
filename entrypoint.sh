@@ -1,17 +1,75 @@
 #!/bin/bash
 
-# Create necessary directories
 mkdir -p /var/www/hls /run/nginx
 
-# If PORT is set by Railway, use it, else default to 8080
 APP_PORT=${PORT:-8080}
-echo "Configuring Nginx on port $APP_PORT..."
-sed -i "s/listen 8080;/listen $APP_PORT;/g" /etc/nginx/nginx.conf
+
+cat <<EOF > /etc/nginx/nginx.conf
+worker_processes auto;
+pid /run/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    
+    types {
+        application/x-mpegURL m3u8;
+        application/vnd.apple.mpegurl m3u8;
+        audio/aac aac;
+        audio/mp4 m4s mp4;
+        video/iso.segment m4s;
+    }
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+
+    server {
+        listen 80;
+        listen 8080;
+        listen 8000;
+        listen 3000;
+        listen $APP_PORT;
+        server_name _;
+
+        location /hls {
+            root /var/www;
+            
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods 'GET, HEAD, OPTIONS' always;
+            add_header Access-Control-Allow-Headers '*' always;
+            
+            location ~* \.m3u8$ {
+                root /var/www;
+                add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+                add_header Access-Control-Allow-Origin * always;
+                add_header Content-Type "application/x-mpegURL" always;
+            }
+            
+            location ~* \.(m4s|mp4|aac)$ {
+                root /var/www;
+                add_header Cache-Control "max-age=60" always;
+                add_header Access-Control-Allow-Origin * always;
+            }
+        }
+
+        location /health {
+            return 200 'OK';
+            add_header Content-Type text/plain;
+        }
+    }
+}
+EOF
 
 # Start nginx in background
 nginx
 
-echo "Nginx started on port $APP_PORT..."
+echo "Nginx started on port $APP_PORT and 8080..."
 
 STREAM_SOURCE=${STREAM_SOURCE:-"http://stream.radiojar.com/c1wchedg76bwv"}
 
