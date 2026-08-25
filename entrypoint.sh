@@ -1,13 +1,15 @@
 #!/bin/bash
-set -e
+set +e
 
 mkdir -p /var/www/hls /run
 
 APP_PORT="${PORT:-8080}"
 echo "Configuring Nginx on port: $APP_PORT"
 
-# Replace PORT_PLACEHOLDER with actual port assigned by Railway
-sed -i "s/PORT_PLACEHOLDER/$APP_PORT/g" /etc/nginx/nginx.conf
+# Configure nginx with dynamic port if placeholder exists
+if grep -q "PORT_PLACEHOLDER" /etc/nginx/nginx.conf; then
+    sed -i "s/PORT_PLACEHOLDER/$APP_PORT/g" /etc/nginx/nginx.conf
+fi
 
 # Start Nginx in background
 nginx -g 'daemon on;'
@@ -16,9 +18,9 @@ echo "Nginx started on port $APP_PORT..."
 
 STREAM_SOURCE=${STREAM_SOURCE:-"http://stream.radiojar.com/c1wchedg76bwv"}
 
-# Loop ffmpeg in foreground
+# Loop ffmpeg indefinitely, even if errors occur
 while true; do
-    echo "Starting FFmpeg HLS transcode from: $STREAM_SOURCE"
+    echo "[$(date)] Starting FFmpeg HLS transcode from: $STREAM_SOURCE"
     
     ffmpeg -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
         -err_detect ignore_err \
@@ -31,8 +33,8 @@ while true; do
         -hls_segment_type fmp4 \
         -hls_fmp4_init_filename 'init.mp4' \
         -hls_segment_filename '/var/www/hls/segment_%05d.m4s' \
-        /var/www/hls/live.m3u8
+        /var/www/hls/live.m3u8 || true
         
-    echo "FFmpeg exited, restarting in 2 seconds..."
+    echo "[$(date)] FFmpeg exited with code $?, restarting in 2 seconds..."
     sleep 2
 done
