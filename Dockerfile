@@ -7,7 +7,8 @@ RUN mkdir -p /var/www/hls /run /var/log /etc/supervisor.d && chmod -R 777 /var/w
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisord.conf
 COPY entrypoint-ffmpeg.sh /entrypoint-ffmpeg.sh
-RUN chmod +x /entrypoint-ffmpeg.sh
+COPY start-nginx.sh /start-nginx.sh
+RUN chmod +x /entrypoint-ffmpeg.sh /start-nginx.sh
 
 EXPOSE 8080 80
 
