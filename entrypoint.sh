@@ -3,10 +3,16 @@ set -e
 
 mkdir -p /var/www/hls /run
 
+APP_PORT="${PORT:-8080}"
+echo "Configuring Nginx on port: $APP_PORT"
+
+# Replace PORT_PLACEHOLDER with actual port assigned by Railway
+sed -i "s/PORT_PLACEHOLDER/$APP_PORT/g" /etc/nginx/nginx.conf
+
 # Start Nginx in background
 nginx -g 'daemon on;'
 
-echo "Nginx started on ports 8080 and 80..."
+echo "Nginx started on port $APP_PORT..."
 
 STREAM_SOURCE=${STREAM_SOURCE:-"http://stream.radiojar.com/c1wchedg76bwv"}
 
