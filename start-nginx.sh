@@ -4,8 +4,10 @@ set -e
 PORT="${PORT:-8080}"
 echo "Configuring Nginx to listen on Railway PORT: $PORT"
 
-# Replace whatever listen line is in nginx.conf with the actual assigned PORT
-sed -i "s/listen .*/listen $PORT default_server;/g" /etc/nginx/nginx.conf
+sed -i "s/listen 8080 default_server;/listen $PORT default_server;/g" /etc/nginx/nginx.conf
+
+echo "Testing Nginx configuration..."
+nginx -t
 
 echo "Starting Nginx on port $PORT..."
 exec nginx -g "daemon off;"
