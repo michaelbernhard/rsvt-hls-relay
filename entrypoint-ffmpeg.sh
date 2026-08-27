@@ -14,7 +14,7 @@ ln -s /dev/shm/hls /var/www/hls
     done
 ) &
 
-echo "Starting optimized rock-solid FFmpeg HLS transcode from: $STREAM_SOURCE"
+echo "Starting optimized rock-solid FFmpeg HLS transcode with Program-Date-Time from: $STREAM_SOURCE"
 exec ffmpeg -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 \
     -err_detect ignore_err \
     -fflags +genpts+nobuffer+flush_packets+discardcorrupt \
@@ -27,7 +27,7 @@ exec ffmpeg -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_de
     -f hls \
     -hls_time 4 \
     -hls_list_size 20 \
-    -hls_flags append_list+omit_endlist+independent_segments+temp_file \
+    -hls_flags append_list+omit_endlist+independent_segments+temp_file+program_date_time \
     -hls_segment_type fmp4 \
     -hls_fmp4_init_filename 'init.mp4' \
     -hls_segment_filename '/var/www/hls/segment_%05d.m4s' \
