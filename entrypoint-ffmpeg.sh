@@ -14,12 +14,14 @@ ln -s /dev/shm/hls /var/www/hls
     done
 ) &
 
-echo "Starting optimized rock-solid FFmpeg HLS transcode with Program-Date-Time from: $STREAM_SOURCE"
+echo "Starting optimized rock-solid FFmpeg HLS transcode with ICY metadata from: $STREAM_SOURCE"
 exec ffmpeg -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 \
     -err_detect ignore_err \
     -fflags +genpts+nobuffer+flush_packets+discardcorrupt \
     -probesize 32768 -analyzeduration 0 \
+    -icy 1 \
     -i "$STREAM_SOURCE" \
+    -map_metadata 0 \
     -af "aresample=async=1000:min_hard_comp=0.010000:first_pts=0" \
     -c:a aac -b:a 256k -ar 44100 -ac 2 \
     -flags +global_header \
