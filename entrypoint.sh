@@ -20,7 +20,7 @@ echo "Nginx started successfully..."
 
 STREAM_SOURCE=${STREAM_SOURCE:-"http://stream.radiojar.com/c1wchedg76bwv"}
 
-# Loop ffmpeg indefinitely
+# Loop ffmpeg indefinitely with 2-minute rolling buffer (30 segments)
 while true; do
     echo "[$(date)] Starting FFmpeg HLS transcode from: $STREAM_SOURCE"
     
@@ -30,7 +30,7 @@ while true; do
         -c:a aac -b:a 256k -ar 44100 -ac 2 \
         -f hls \
         -hls_time 4 \
-        -hls_list_size 6 \
+        -hls_list_size 30 \
         -hls_flags delete_segments+append_list+omit_endlist \
         -hls_segment_type fmp4 \
         -hls_fmp4_init_filename 'init.mp4' \
