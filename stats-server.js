@@ -58,32 +58,35 @@ function pollRadiojar() {
 setInterval(pollRadiojar, 3000);
 pollRadiojar();
 
-// -------------------------------------------------------------
-// Upstream Audio Ingest (Follows 302 Redirects & Auto-Reconnects)
-// -------------------------------------------------------------
-let activeUpstreamRes = null;
+// ------------------------------------------------------------------
+// Upstream Audio Ingest with Instant Reconnect & Zero-Drop Broadcast
+// ------------------------------------------------------------------
+let isConnecting = false;
 
 function connectUpstream(url = 'http://stream.radiojar.com/c1wchedg76bwv') {
-    console.log(`[Upstream] Connecting to ${url}...`);
+    if (isConnecting && url === 'http://stream.radiojar.com/c1wchedg76bwv') return;
+    isConnecting = true;
     
     const req = http.get(url, {
         headers: {
-            'User-Agent': 'RSVT-Relay-Broadcaster/3.0'
-        }
+            'User-Agent': 'RSVT-Relay-Broadcaster/4.0'
+        },
+        timeout: 10000
     }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            console.log(`[Upstream] Following 302 redirect to: ${res.headers.location}`);
+            isConnecting = false;
             return connectUpstream(res.headers.location);
         }
 
         if (res.statusCode !== 200) {
-            console.error(`[Upstream] Bad status code ${res.statusCode}. Retrying in 2s...`);
-            setTimeout(() => connectUpstream(), 2000);
+            console.error(`[Upstream] Status ${res.statusCode}. Reconnecting in 500ms...`);
+            isConnecting = false;
+            setTimeout(() => connectUpstream(), 500);
             return;
         }
 
+        isConnecting = false;
         console.log('[Upstream] Audio stream connected successfully! Broadcasting live chunks.');
-        activeUpstreamRes = res;
 
         res.on('data', (chunk) => {
             for (const client of connectedClients) {
@@ -100,14 +103,22 @@ function connectUpstream(url = 'http://stream.radiojar.com/c1wchedg76bwv') {
         });
 
         res.on('end', () => {
-            console.warn('[Upstream] Stream connection ended. Reconnecting in 1s...');
-            setTimeout(() => connectUpstream(), 1000);
+            console.warn('[Upstream] Stream ended by Radiojar. Reconnecting instantly (0ms)...');
+            connectUpstream();
         });
     });
 
     req.on('error', (err) => {
-        console.error('[Upstream] Connection error:', err.message);
-        setTimeout(() => connectUpstream(), 2000);
+        console.error('[Upstream] Socket error:', err.message);
+        isConnecting = false;
+        setTimeout(() => connectUpstream(), 500);
+    });
+
+    req.on('timeout', () => {
+        console.warn('[Upstream] Request timeout. Reconnecting...');
+        req.destroy();
+        isConnecting = false;
+        connectUpstream();
     });
 }
 
@@ -124,7 +135,6 @@ function sendIcyChunk(client, chunk) {
         offset += bytesToWrite;
 
         if (client.byteCount === ICY_META_INT) {
-            // Check if track changed or first interval
             if (client.lastSentTitle !== currentTrack.title || client.needsInitialMeta) {
                 client.res.write(pendingMetadataPacket);
                 client.lastSentTitle = currentTrack.title;
