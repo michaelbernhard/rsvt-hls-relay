@@ -1,0 +1,87 @@
+<icecast>
+    <location>Denmark</location>
+    <admin>admin@reservatet.fm</admin>
+    <hostname>rsvt-hls-relay-production-dcfe.up.railway.app</hostname>
+
+    <limits>
+        <clients>2000</clients>
+        <sources>10</sources>
+        <queue-size>524288</queue-size>
+        <client-timeout>30</client-timeout>
+        <header-timeout>15</header-timeout>
+        <source-timeout>10</source-timeout>
+        <burst-size>65536</burst-size>
+    </limits>
+
+    <authentication>
+        <source-password>rsvt_source_secret_2026</source-password>
+        <relay-password>rsvt_relay_secret_2026</relay-password>
+        <admin-user>admin</admin-user>
+        <admin-password>rsvt_admin_secret_2026</admin-password>
+    </authentication>
+
+    <listen-socket>
+        <port>8080</port>
+    </listen-socket>
+
+    <mount type="normal">
+        <mount-name>/live.mp3</mount-name>
+        <fallback-mount>/stream.mp3</fallback-mount>
+        <fallback-override>1</fallback-override>
+        <burst-size>65536</burst-size>
+        <queue-size>524288</queue-size>
+        <public>1</public>
+        <stream-name>Reservatet.fm LIVE</stream-name>
+        <stream-description>Reservatet.fm LIVE</stream-description>
+        <stream-url>https://reservatet.fm</stream-url>
+        <genre>Eclectic</genre>
+        <bitrate>256</bitrate>
+        <type>audio/mpeg</type>
+    </mount>
+
+    <mount type="normal">
+        <mount-name>/stream.mp3</mount-name>
+        <burst-size>65536</burst-size>
+        <queue-size>524288</queue-size>
+        <public>1</public>
+        <stream-name>Reservatet.fm LIVE</stream-name>
+        <stream-description>Reservatet.fm LIVE</stream-description>
+        <stream-url>https://reservatet.fm</stream-url>
+        <genre>Eclectic</genre>
+        <bitrate>256</bitrate>
+        <type>audio/mpeg</type>
+    </mount>
+
+    <mount type="normal">
+        <mount-name>/bloedeboelger.mp3</mount-name>
+        <burst-size>65536</burst-size>
+        <queue-size>524288</queue-size>
+        <public>1</public>
+        <stream-name>Bløde Bølger</stream-name>
+        <stream-description>Bløde Bølger</stream-description>
+        <stream-url>https://reservatet.fm</stream-url>
+        <genre>Chill</genre>
+        <bitrate>256</bitrate>
+        <type>audio/mpeg</type>
+    </mount>
+
+    <fileserve>1</fileserve>
+    <paths>
+        <basedir>/usr/share/icecast</basedir>
+        <logdir>/var/log/icecast</logdir>
+        <webroot>/usr/share/icecast/web</webroot>
+        <adminroot>/usr/share/icecast/admin</adminroot>
+        <alias source="/" destination="/status.xsl"/>
+    </paths>
+
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <loglevel>3</loglevel>
+        <logsize>10000</logsize>
+    </logging>
+
+    <security>
+        <chroot>0</chroot>
+    </security>
+</icecast>
