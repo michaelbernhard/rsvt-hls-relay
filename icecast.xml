@@ -22,12 +22,11 @@
 
     <listen-socket>
         <port>8080</port>
+        <bind-address>0.0.0.0</bind-address>
     </listen-socket>
 
     <mount type="normal">
         <mount-name>/live.mp3</mount-name>
-        <fallback-mount>/stream.mp3</fallback-mount>
-        <fallback-override>1</fallback-override>
         <burst-size>65536</burst-size>
         <queue-size>524288</queue-size>
         <public>1</public>
@@ -65,13 +64,10 @@
         <type>audio/mpeg</type>
     </mount>
 
-    <fileserve>1</fileserve>
     <paths>
-        <basedir>/usr/share/icecast</basedir>
         <logdir>/var/log/icecast</logdir>
         <webroot>/usr/share/icecast/web</webroot>
         <adminroot>/usr/share/icecast/admin</adminroot>
-        <alias source="/" destination="/status.xsl"/>
     </paths>
 
     <logging>
@@ -83,5 +79,9 @@
 
     <security>
         <chroot>0</chroot>
+        <changeowner>
+            <user>icecast</user>
+            <group>icecast</group>
+        </changeowner>
     </security>
 </icecast>

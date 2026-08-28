@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-mkdir -p /var/log/icecast
-chown -R icecast:icecast /var/log/icecast
+mkdir -p /var/log/icecast /etc/icecast2
+touch /var/log/icecast/error.log /var/log/icecast/access.log
+chown -R icecast:icecast /var/log/icecast /etc/icecast2
 
 APP_PORT="${PORT:-8080}"
 echo "Configuring Icecast2 on port: $APP_PORT..."
@@ -14,6 +15,9 @@ sed -i "s|<port>.*</port>|<port>$APP_PORT</port>|g" /etc/icecast2/icecast.xml
 echo "Starting Icecast2 server..."
 icecast -c /etc/icecast2/icecast.xml &
 
-# Start stream feeder in foreground to keep container running
+# Tail icecast logs in background so we see all diagnostics
+tail -F /var/log/icecast/error.log &
+
+# Start stream feeder in foreground
 echo "Starting stream feeder..."
 exec node /stream-feeder.js
