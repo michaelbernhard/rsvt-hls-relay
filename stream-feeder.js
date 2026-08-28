@@ -9,9 +9,8 @@ function feedStream(sourceUrl, targetMount, streamName) {
         
         const sourceReq = (sourceUrl.startsWith('https:') ? https : http).get(sourceUrl, {
             headers: {
-                'User-Agent': 'RSVT-Icecast-Ingest/1.0'
-            },
-            timeout: 10000
+                'User-Agent': 'RSVT-Icecast-Ingest/2.0'
+            }
         }, (sourceRes) => {
             if (sourceRes.statusCode >= 300 && sourceRes.statusCode < 400 && sourceRes.headers.location) {
                 console.log(`[Feeder - ${streamName}] Following redirect to: ${sourceRes.headers.location}`);
@@ -24,7 +23,7 @@ function feedStream(sourceUrl, targetMount, streamName) {
                 return;
             }
 
-            console.log(`[Feeder - ${streamName}] Source audio connected! Pushing to Icecast ${targetMount}...`);
+            console.log(`[Feeder - ${streamName}] Source audio connected! Pushing permanently to Icecast ${targetMount}...`);
 
             // Connect to local Icecast via SOURCE method
             const icecastReq = http.request({
@@ -52,9 +51,9 @@ function feedStream(sourceUrl, targetMount, streamName) {
             sourceRes.pipe(icecastReq);
 
             sourceRes.on('end', () => {
-                console.warn(`[Feeder - ${streamName}] Source stream ended. Reconnecting in 500ms...`);
+                console.warn(`[Feeder - ${streamName}] Source stream ended. Reconnecting in 200ms...`);
                 icecastReq.end();
-                setTimeout(connect, 500);
+                setTimeout(connect, 200);
             });
 
             sourceRes.on('error', (err) => {
@@ -66,12 +65,6 @@ function feedStream(sourceUrl, targetMount, streamName) {
 
         sourceReq.on('error', (err) => {
             console.error(`[Feeder - ${streamName}] Connection error:`, err.message);
-            setTimeout(connect, 1000);
-        });
-
-        sourceReq.on('timeout', () => {
-            console.warn(`[Feeder - ${streamName}] Connection timeout. Retrying...`);
-            sourceReq.destroy();
             setTimeout(connect, 1000);
         });
     }
