@@ -12,34 +12,36 @@ sed -i "s/listen \[::\]:8080/listen \[::\]:$APP_PORT/g" /etc/nginx/nginx.conf
 mkdir -p /dev/shm/hls
 mkdir -p /var/log/nginx /run
 
-# Function to run continuous FFmpeg HLS transcode with auto-reconnect
+# Function to run continuous FFmpeg HLS transcode matching BBC Audio Factory standard (6s chunks, deep buffer)
 start_stream_transcoder() {
     local stream_url="$1"
     local output_dir="$2"
     local prefix="$3"
     local stream_label="$4"
 
-    echo "Starting HLS MPEG-TS packager for $stream_label..."
+    echo "Starting broadcast-grade HLS packager for $stream_label (6s chunks, 36s buffer)..."
 
     while true; do
         ffmpeg -hide_banner -loglevel warning \
             -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 \
+            -probesize 64k -analyzeduration 500000 \
             -i "$stream_url" \
+            -af "aresample=async=1000:first_pts=0" \
             -c:a aac -b:a 256k -ar 44100 -ac 2 \
             -f hls \
-            -hls_time 2 \
+            -hls_time 6 \
             -hls_list_size 6 \
             -hls_flags delete_segments+append_list+omit_endlist \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%05d.ts" \
             "$output_dir/${prefix}.m3u8" || true
 
-        echo "[$stream_label] Transcoder exited. Reconnecting in 1s..."
+        echo "[$stream_label] Transcoder disconnected. Auto-recovering in 1s..."
         sleep 1
     done
 }
 
-# Start FFmpeg transcoders in background with unique chunk prefixes in RAM disk
+# Start FFmpeg transcoders in background with BBC-standard 6s chunks and audio resampler sync
 start_stream_transcoder "http://stream.radiojar.com/c1wchedg76bwv" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
 start_stream_transcoder "http://stream.radiojar.com/4hge3m401bpwv" "/dev/shm/hls" "bloede" "Bløde Bølger" &
 
