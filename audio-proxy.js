@@ -53,9 +53,9 @@ const server = http.createServer((req, res) => {
                 'Access-Control-Allow-Origin': '*',
                 'Connection': 'keep-alive',
                 'icy-name': streamConfig.name,
-                'icy-description': streamConfig.name,
+                'icy-description': 'Reservatet.fm - ' + streamConfig.name,
                 'icy-pub': '1',
-                'icy-br': upstreamRes.headers['icy-br'] || '256'
+                'icy-br': '256'
             });
 
             upstreamRes.pipe(res);
