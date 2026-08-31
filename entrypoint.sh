@@ -12,14 +12,23 @@ sed -i "s/listen \[::\]:8080/listen \[::\]:$APP_PORT/g" /etc/nginx/nginx.conf
 mkdir -p /dev/shm/hls
 mkdir -p /var/log/nginx /run
 
-# Function to run continuous FFmpeg HLS transcode matching BBC Audio Factory standard (6s chunks, deep buffer)
+# Background cleanup: Retain old .ts segments for 10 minutes (600s) on RAM disk
+# This eliminates all 404 underruns for Sonos speakers and multiroom setups
+(
+    while true; do
+        sleep 30
+        find /dev/shm/hls -name "*.ts" -mmin +10 -delete 2>/dev/null || true
+    done
+) &
+
+# Function to run continuous FFmpeg HLS transcode matching BBC Audio Factory standard (6s chunks, 20 chunks = 120s buffer window)
 start_stream_transcoder() {
     local stream_url="$1"
     local output_dir="$2"
     local prefix="$3"
     local stream_label="$4"
 
-    echo "Starting broadcast-grade HLS packager for $stream_label (6s chunks, 36s buffer)..."
+    echo "Starting broadcast-grade HLS packager for $stream_label (6s chunks, 120s buffer window, 10min retention)..."
 
     while true; do
         ffmpeg -hide_banner -loglevel warning \
@@ -30,8 +39,8 @@ start_stream_transcoder() {
             -c:a aac -b:a 256k -ar 44100 -ac 2 \
             -f hls \
             -hls_time 6 \
-            -hls_list_size 6 \
-            -hls_flags delete_segments+append_list+omit_endlist \
+            -hls_list_size 20 \
+            -hls_flags append_list+omit_endlist+temp_file \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%05d.ts" \
             "$output_dir/${prefix}.m3u8" || true
@@ -41,7 +50,7 @@ start_stream_transcoder() {
     done
 }
 
-# Start FFmpeg transcoders in background with BBC-standard 6s chunks and audio resampler sync
+# Start FFmpeg transcoders in background
 start_stream_transcoder "http://stream.radiojar.com/c1wchedg76bwv" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
 start_stream_transcoder "http://stream.radiojar.com/4hge3m401bpwv" "/dev/shm/hls" "bloede" "Bløde Bølger" &
 
