@@ -50,6 +50,14 @@ start_stream_transcoder() {
     done
 }
 
+# Start Direct MP3 Audio Proxy in background (port 8082)
+echo "Starting Node.js Direct MP3 Audio Proxy..."
+node /audio-proxy.js &
+
+# Start Stats Server in background (port 8081)
+echo "Starting Stats Server..."
+node /stats-server.js &
+
 # Start FFmpeg transcoders in background
 start_stream_transcoder "http://stream.radiojar.com/c1wchedg76bwv" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
 start_stream_transcoder "http://stream.radiojar.com/4hge3m401bpwv" "/dev/shm/hls" "bloede" "Bløde Bølger" &
