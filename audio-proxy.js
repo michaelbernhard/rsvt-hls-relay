@@ -33,8 +33,7 @@ const server = http.createServer((req, res) => {
         const client = targetUrl.startsWith('https:') ? https : http;
         const upstreamReq = client.get(targetUrl, {
             headers: {
-                'User-Agent': req.headers['user-agent'] || 'Sonos Speaker (HiFi)',
-                'Icy-MetaData': '1'
+                'User-Agent': 'RSVT-Sonos-Relay/2.0'
             }
         }, (upstreamRes) => {
             if (upstreamRes.statusCode >= 300 && upstreamRes.statusCode < 400 && upstreamRes.headers.location) {
