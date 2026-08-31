@@ -52,8 +52,10 @@ const server = http.createServer((req, res) => {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Access-Control-Allow-Origin': '*',
                 'Connection': 'keep-alive',
-                ...(upstreamRes.headers['icy-name'] && { 'icy-name': upstreamRes.headers['icy-name'] }),
-                ...(upstreamRes.headers['icy-br'] && { 'icy-br': upstreamRes.headers['icy-br'] })
+                'icy-name': streamConfig.name,
+                'icy-description': streamConfig.name,
+                'icy-pub': '1',
+                'icy-br': upstreamRes.headers['icy-br'] || '256'
             });
 
             upstreamRes.pipe(res);
