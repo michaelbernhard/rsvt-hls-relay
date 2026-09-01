@@ -7,10 +7,12 @@ const CHANNELS = {
         name: 'Reservatet.fm LIVE',
         icyName: 'Reservatet.fm LIVE',
         url: 'http://stream.radiojar.com/c1wchedg76bwv',
+        bitrate: 320,
+        sampleRate: 48000,
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 128 * 1024, // 128 KB (~4 seconds buffer for instant start and fault tolerance)
+        maxBufferBytes: 128 * 1024, // 128 KB (~3-4 seconds buffer for instant start and fault tolerance)
         isConnected: false,
         reconnectTimer: null
     },
@@ -18,6 +20,8 @@ const CHANNELS = {
         name: 'Bløde Bølger',
         icyName: 'Bloede Boelger',
         url: 'http://stream.radiojar.com/4hge3m401bpwv',
+        bitrate: 128,
+        sampleRate: 44100,
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
@@ -153,6 +157,24 @@ for (const key of Object.keys(CHANNELS)) {
 }
 
 // -------------------------------------------------------------
+// Helper to locate first clean MP3 frame header
+// -------------------------------------------------------------
+function findMp3FrameStart(buf) {
+    for (let i = 0; i < buf.length - 3; i++) {
+        if (buf[i] === 0xFF && (buf[i + 1] & 0xE0) === 0xE0) {
+            const version = (buf[i + 1] >> 3) & 0x03;
+            const layer = (buf[i + 1] >> 1) & 0x03;
+            const bitrateIdx = (buf[i + 2] >> 4) & 0x0F;
+            const srIdx = (buf[i + 2] >> 2) & 0x03;
+            if (version !== 1 && layer === 1 && bitrateIdx > 0 && bitrateIdx < 15 && srIdx < 3) {
+                return i;
+            }
+        }
+    }
+    return 0;
+}
+
+// -------------------------------------------------------------
 // HTTP Streaming Server for Sonos, Web & Apps
 // -------------------------------------------------------------
 const server = http.createServer((req, res) => {
@@ -197,7 +219,9 @@ const server = http.createServer((req, res) => {
         'icy-name': channel.icyName || channel.name,
         'icy-description': 'Reservatet.fm - ' + (channel.icyName || channel.name),
         'icy-pub': '1',
-        'icy-br': '256'
+        'icy-br': String(channel.bitrate || 320),
+        'icy-sr': String(channel.sampleRate || 48000),
+        'icy-samplerate': String(channel.sampleRate || 48000)
     });
 
     if (req.method === 'HEAD') {
@@ -216,10 +240,12 @@ const server = http.createServer((req, res) => {
     channel.clients.add(clientObj);
     console.log(`[Client Connect - ${channel.name}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}`);
 
-    // Send immediate audio burst from ring buffer for instantaneous playback (0ms delay)
-    for (const chunk of channel.buffer) {
+    // Send immediate audio burst from ring buffer, strictly aligned to first MP3 frame sync
+    if (channel.buffer.length > 0) {
+        const fullBuf = Buffer.concat(channel.buffer);
+        const offset = findMp3FrameStart(fullBuf);
         try {
-            res.write(chunk);
+            res.write(fullBuf.subarray(offset));
         } catch (e) {
             removeClient(resolvedPath, clientObj);
             return;
