@@ -5,6 +5,7 @@ const https = require('https');
 const CHANNELS = {
     '/live.mp3': {
         name: 'Reservatet.fm LIVE',
+        icyName: 'Reservatet.fm LIVE',
         url: 'http://stream.radiojar.com/c1wchedg76bwv',
         clients: new Set(),
         buffer: [],
@@ -15,6 +16,7 @@ const CHANNELS = {
     },
     '/bloede.mp3': {
         name: 'Bløde Bølger',
+        icyName: 'Bloede Boelger',
         url: 'http://stream.radiojar.com/4hge3m401bpwv',
         clients: new Set(),
         buffer: [],
@@ -192,8 +194,8 @@ const server = http.createServer((req, res) => {
         'Expires': '0',
         'Access-Control-Allow-Origin': '*',
         'Connection': 'keep-alive',
-        'icy-name': channel.name,
-        'icy-description': 'Reservatet.fm - ' + channel.name,
+        'icy-name': channel.icyName || channel.name,
+        'icy-description': 'Reservatet.fm - ' + (channel.icyName || channel.name),
         'icy-pub': '1',
         'icy-br': '256'
     });
