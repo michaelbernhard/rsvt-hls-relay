@@ -47,8 +47,9 @@ start_stream_transcoder() {
             -af "aresample=async=1000:first_pts=0" \
             -c:a aac -b:a 256k -ar 44100 -ac 2 \
             -f hls \
-            -hls_time 4 \
+            -hls_time 6 \
             -hls_list_size 10 \
+            -hls_delete_threshold 10 \
             -hls_flags delete_segments+omit_endlist \
             -hls_segment_type mpegts \
             -hls_start_number_source epoch \
