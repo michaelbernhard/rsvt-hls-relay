@@ -6,7 +6,7 @@ const CHANNELS = {
     '/live.mp3': {
         name: 'Reservatet.fm LIVE',
         icyName: 'Reservatet.fm LIVE',
-        url: 'http://stream.radiojar.com/c1wchedg76bwv',
+        sourceUrl: 'http://stream.radiojar.com/c1wchedg76bwv',
         bitrate: 320,
         sampleRate: 48000,
         clients: new Set(),
@@ -19,7 +19,7 @@ const CHANNELS = {
     '/bloede.mp3': {
         name: 'Bløde Bølger',
         icyName: 'Bloede Boelger',
-        url: 'http://stream.radiojar.com/4hge3m401bpwv',
+        sourceUrl: 'http://stream.radiojar.com/4hge3m401bpwv',
         bitrate: 128,
         sampleRate: 44100,
         clients: new Set(),
@@ -41,7 +41,7 @@ const ALIASES = {
 // -------------------------------------------------------------
 // Central Stream Ingest Worker with Auto-Reconnect & Ring Buffer
 // -------------------------------------------------------------
-function startIngest(channelKey, redirectDepth = 0) {
+function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
     const channel = CHANNELS[channelKey];
     if (!channel) return;
 
@@ -50,23 +50,22 @@ function startIngest(channelKey, redirectDepth = 0) {
         channel.reconnectTimer = null;
     }
 
-    const targetUrl = channel.url;
-    const client = targetUrl.startsWith('https:') ? https : http;
+    const fetchUrl = targetUrl || channel.sourceUrl;
+    const client = fetchUrl.startsWith('https:') ? https : http;
 
-    console.log(`[Ingest - ${channel.name}] Connecting to upstream: ${targetUrl}`);
+    console.log(`[Ingest - ${channel.name}] Connecting to upstream: ${fetchUrl}`);
 
-    const req = client.get(targetUrl, {
+    const req = client.get(fetchUrl, {
         headers: {
             'User-Agent': 'RSVT-Broadcast-Ingest/3.0',
             'Connection': 'keep-alive'
         },
         timeout: 8000
     }, (res) => {
-        // Follow redirects
+        // Follow redirects cleanly WITHOUT overwriting base sourceUrl
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectDepth < 5) {
             console.log(`[Ingest - ${channel.name}] Following redirect to: ${res.headers.location}`);
-            channel.url = res.headers.location;
-            return startIngest(channelKey, redirectDepth + 1);
+            return startIngest(channelKey, res.headers.location, redirectDepth + 1);
         }
 
         if (res.statusCode !== 200) {
