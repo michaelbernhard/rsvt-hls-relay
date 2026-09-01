@@ -44,13 +44,12 @@ start_stream_transcoder() {
             -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
             -probesize 64k -analyzeduration 500000 \
             -i "$stream_url" \
-            -af "aresample=async=1000:first_pts=0" \
-            -c:a aac -b:a 256k -ar 44100 -ac 2 \
+            -c:a aac -b:a 256k -ar 48000 -ac 2 \
             -f hls \
             -hls_time 6 \
             -hls_list_size 10 \
-            -hls_delete_threshold 10 \
-            -hls_flags delete_segments+omit_endlist \
+            -hls_delete_threshold 5 \
+            -hls_flags delete_segments+omit_endlist+independent_segments \
             -hls_segment_type mpegts \
             -hls_start_number_source epoch \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
