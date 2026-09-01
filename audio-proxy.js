@@ -39,21 +39,34 @@ const ALIASES = {
 };
 
 // -------------------------------------------------------------
-// Central Stream Ingest Worker with Auto-Reconnect & Ring Buffer
+// Central Stream Ingest Worker with Auto-Reconnect & Single-Stream Lock
 // -------------------------------------------------------------
 function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
     const channel = CHANNELS[channelKey];
     if (!channel) return;
 
-    if (redirectDepth === 0 && channel.reconnectTimer) {
-        clearTimeout(channel.reconnectTimer);
-        channel.reconnectTimer = null;
+    if (redirectDepth === 0) {
+        if (channel.reconnectTimer) {
+            clearTimeout(channel.reconnectTimer);
+            channel.reconnectTimer = null;
+        }
+        // Increment generation ID to instantly invalidate all previous/zombie connections
+        channel.generationId = (channel.generationId || 0) + 1;
+        if (channel.activeReq) {
+            try { channel.activeReq.destroy(); } catch (e) {}
+            channel.activeReq = null;
+        }
+        if (channel.activeRes) {
+            try { channel.activeRes.destroy(); } catch (e) {}
+            channel.activeRes = null;
+        }
     }
 
+    const currentGen = channel.generationId;
     const fetchUrl = targetUrl || channel.sourceUrl;
     const client = fetchUrl.startsWith('https:') ? https : http;
 
-    console.log(`[Ingest - ${channel.name}] Connecting to upstream: ${fetchUrl}`);
+    console.log(`[Ingest - ${channel.name} (Gen ${currentGen})] Connecting to: ${fetchUrl}`);
 
     const req = client.get(fetchUrl, {
         headers: {
@@ -62,22 +75,36 @@ function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
         },
         timeout: 8000
     }, (res) => {
-        // Follow redirects cleanly WITHOUT overwriting base sourceUrl
+        if (channel.generationId !== currentGen) {
+            res.destroy();
+            req.destroy();
+            return;
+        }
+
+        // Follow redirects cleanly WITHOUT leaving zombie connections or overwriting sourceUrl
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectDepth < 5) {
-            console.log(`[Ingest - ${channel.name}] Following redirect to: ${res.headers.location}`);
+            console.log(`[Ingest - ${channel.name}] Redirect (${res.statusCode}) -> ${res.headers.location}`);
+            res.destroy();
+            req.destroy();
             return startIngest(channelKey, res.headers.location, redirectDepth + 1);
         }
 
         if (res.statusCode !== 200) {
             console.error(`[Ingest - ${channel.name}] Upstream returned status ${res.statusCode}. Reconnecting in 1s...`);
+            res.destroy();
+            req.destroy();
             scheduleReconnect(channelKey, 1000);
             return;
         }
 
-        console.log(`[Ingest - ${channel.name}] Audio connected! Broadcasting live to ${channel.clients.size} clients.`);
+        channel.activeReq = req;
+        channel.activeRes = res;
         channel.isConnected = true;
+        console.log(`[Ingest - ${channel.name} (Gen ${currentGen})] Audio connected! Broadcasting live to ${channel.clients.size} clients.`);
 
         res.on('data', (chunk) => {
+            if (channel.generationId !== currentGen) return;
+
             // 1. Append to Ring Buffer
             channel.buffer.push(chunk);
             channel.bufferBytes += chunk.length;
@@ -101,29 +128,37 @@ function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
         });
 
         res.on('end', () => {
-            console.warn(`[Ingest - ${channel.name}] Upstream connection ended. Auto-reconnecting in 100ms...`);
+            if (channel.generationId !== currentGen) return;
+            console.warn(`[Ingest - ${channel.name}] Upstream stream ended. Auto-reconnecting in 100ms...`);
             channel.isConnected = false;
+            channel.activeRes = null;
             scheduleReconnect(channelKey, 100);
         });
 
         res.on('error', (err) => {
-            console.error(`[Ingest - ${channel.name}] Upstream error: ${err.message}. Auto-reconnecting in 200ms...`);
+            if (channel.generationId !== currentGen) return;
+            console.error(`[Ingest - ${channel.name}] Upstream stream error: ${err.message}. Reconnecting in 200ms...`);
             channel.isConnected = false;
+            channel.activeRes = null;
             res.destroy();
             scheduleReconnect(channelKey, 200);
         });
     });
 
     req.on('timeout', () => {
+        if (channel.generationId !== currentGen) return;
         console.error(`[Ingest - ${channel.name}] Connection timeout. Retrying in 500ms...`);
         req.destroy();
         channel.isConnected = false;
+        channel.activeReq = null;
         scheduleReconnect(channelKey, 500);
     });
 
     req.on('error', (err) => {
+        if (channel.generationId !== currentGen) return;
         console.error(`[Ingest - ${channel.name}] Request error: ${err.message}. Retrying in 1s...`);
         channel.isConnected = false;
+        channel.activeReq = null;
         scheduleReconnect(channelKey, 1000);
     });
 }
