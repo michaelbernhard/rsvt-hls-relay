@@ -6,7 +6,7 @@ const CHANNELS = {
     '/live.mp3': {
         name: 'Reservatet.fm LIVE',
         icyName: 'Reservatet.fm LIVE',
-        sourceUrl: 'http://stream.radiojar.com/c1wchedg76bwv',
+        sourceUrl: 'https://cdn01.radio.cloud/RES-COP-CINURAUDIO01',
         bitrate: 320,
         sampleRate: 48000,
         clients: new Set(),

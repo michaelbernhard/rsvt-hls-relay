@@ -70,7 +70,7 @@ echo "Starting Stats Server..."
 node /stats-server.js &
 
 # Start FFmpeg transcoders in background
-start_stream_transcoder "http://stream.radiojar.com/c1wchedg76bwv" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
+start_stream_transcoder "https://cdn01.radio.cloud/RES-COP-CINURAUDIO01" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
 start_stream_transcoder "http://stream.radiojar.com/4hge3m401bpwv" "/dev/shm/hls" "bloede" "Bløde Bølger" &
 
 # Start Nginx in foreground
