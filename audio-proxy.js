@@ -12,7 +12,7 @@ const CHANNELS = {
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 128 * 1024, // 128 KB (~3-4 seconds buffer for instant start and fault tolerance)
+        maxBufferBytes: 512 * 1024, // 512 KB (~13 seconds buffer for instant start and fault tolerance)
         isConnected: false,
         reconnectTimer: null
     },
@@ -25,7 +25,7 @@ const CHANNELS = {
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 128 * 1024,
+        maxBufferBytes: 512 * 1024,
         isConnected: false,
         reconnectTimer: null
     }
@@ -313,12 +313,18 @@ function sendHeartbeat(clientIp, userAgent, streamName) {
 }
 
 setInterval(() => {
+    let delay = 0;
     for (const [channelKey, channel] of Object.entries(CHANNELS)) {
         for (const clientObj of channel.clients) {
-            sendHeartbeat(clientObj.ip, clientObj.userAgent, channel.name);
+            setTimeout(() => {
+                if (channel.clients.has(clientObj)) {
+                    sendHeartbeat(clientObj.ip, clientObj.userAgent, channel.name);
+                }
+            }, delay);
+            delay += 100; // 100ms between each client ping
         }
     }
-}, 20000);
+}, 25000);
 
 // Start server on port 8082
 const PORT = 8082;

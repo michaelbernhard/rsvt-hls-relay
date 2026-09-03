@@ -47,9 +47,9 @@ start_stream_transcoder() {
             -c:a aac -b:a 256k -ar 48000 -ac 2 \
             -f hls \
             -hls_time 6 \
-            -hls_list_size 10 \
-            -hls_delete_threshold 5 \
-            -hls_flags delete_segments+omit_endlist+independent_segments \
+            -hls_list_size 30 \
+            -hls_delete_threshold 10 \
+            -hls_flags append_list+delete_segments+omit_endlist+independent_segments \
             -hls_segment_type mpegts \
             -hls_start_number_source epoch \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
