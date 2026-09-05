@@ -15,7 +15,55 @@ const heartbeatAgent = new https.Agent({
     timeout: 5000
 });
 
-// Configuration for live stream channels
+// High-performance circular byte buffer for continuous jitter-free streaming
+class AudioQueue {
+    constructor() {
+        this.chunks = [];
+        this.totalBytes = 0;
+    }
+    push(buf) {
+        this.chunks.push(buf);
+        this.totalBytes += buf.length;
+    }
+    pull(bytesNeeded) {
+        if (this.totalBytes === 0) return null;
+        if (this.totalBytes <= bytesNeeded) {
+            const out = this.chunks.length === 1 ? this.chunks[0] : Buffer.concat(this.chunks);
+            this.chunks = [];
+            this.totalBytes = 0;
+            return out;
+        }
+        const collected = [];
+        let collectedBytes = 0;
+        while (this.chunks.length > 0 && collectedBytes < bytesNeeded) {
+            const first = this.chunks[0];
+            const remaining = bytesNeeded - collectedBytes;
+            if (first.length <= remaining) {
+                collected.push(this.chunks.shift());
+                collectedBytes += first.length;
+            } else {
+                collected.push(first.subarray(0, remaining));
+                this.chunks[0] = first.subarray(remaining);
+                collectedBytes += remaining;
+                break;
+            }
+        }
+        this.totalBytes -= collectedBytes;
+        return collected.length === 1 ? collected[0] : Buffer.concat(collected);
+    }
+    peekAll() {
+        if (this.totalBytes === 0) return Buffer.alloc(0);
+        return this.chunks.length === 1 ? this.chunks[0] : Buffer.concat(this.chunks);
+    }
+    trim(maxBytes) {
+        while (this.totalBytes > maxBytes && this.chunks.length > 0) {
+            const removed = this.chunks.shift();
+            this.totalBytes -= removed.length;
+        }
+    }
+}
+
+// Configuration for live stream channels with Server-Side Jitter Queue
 const CHANNELS = {
     '/live.mp3': {
         name: 'Reservatet.fm LIVE',
@@ -24,9 +72,10 @@ const CHANNELS = {
         bitrate: 320,
         sampleRate: 48000,
         clients: new Set(),
-        buffer: [],
-        bufferBytes: 0,
-        maxBufferBytes: 384 * 1024, // 384 KB (~9.6s broadcast burst cushion for Sonos stability)
+        queue: new AudioQueue(),
+        maxQueueBytes: 480 * 1024, // 480 KB (~12s continuous cushion)
+        targetQueueBytes: 320 * 1024, // 320 KB (~8s nominal buffer depth)
+        burstBytes: 160 * 1024, // 160 KB (~4s instant connect fill)
         isConnected: false,
         reconnectTimer: null,
         isFirstChunkAfterConnect: true
@@ -38,9 +87,10 @@ const CHANNELS = {
         bitrate: 128,
         sampleRate: 44100,
         clients: new Set(),
-        buffer: [],
-        bufferBytes: 0,
-        maxBufferBytes: 160 * 1024, // 160 KB (~10s broadcast burst cushion for Sonos stability)
+        queue: new AudioQueue(),
+        maxQueueBytes: 200 * 1024, // 200 KB (~12.5s continuous cushion)
+        targetQueueBytes: 128 * 1024, // 128 KB (~8s nominal buffer depth)
+        burstBytes: 64 * 1024, // 64 KB (~4s instant connect fill)
         isConnected: false,
         reconnectTimer: null,
         isFirstChunkAfterConnect: true
@@ -133,25 +183,10 @@ function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
                 }
             }
 
-            // 1. Append to Ring Buffer
-            channel.buffer.push(chunk);
-            channel.bufferBytes += chunk.length;
-
-            while (channel.bufferBytes > channel.maxBufferBytes && channel.buffer.length > 1) {
-                const removed = channel.buffer.shift();
-                channel.bufferBytes -= removed.length;
-            }
-
-            // 2. Broadcast to all active clients (Sonos, Web, App)
-            for (const clientObj of channel.clients) {
-                try {
-                    const ok = clientObj.res.write(chunk);
-                    if (!ok) {
-                        // Socket buffer full, handled by OS TCP stack
-                    }
-                } catch (err) {
-                    removeClient(channelKey, clientObj);
-                }
+            // Append to Server-Side Jitter Queue
+            channel.queue.push(chunk);
+            if (channel.queue.totalBytes > channel.maxQueueBytes) {
+                channel.queue.trim(channel.maxQueueBytes);
             }
         });
 
@@ -218,6 +253,43 @@ function removeClient(channelKey, clientObj) {
 for (const key of Object.keys(CHANNELS)) {
     startIngest(key);
 }
+
+// -------------------------------------------------------------
+// Continuous Real-Time Audio Pacer (100ms ticks, 10 ticks/sec)
+// Delivers steady, gapless broadcast stream to all connected clients
+// Absorbs upstream song transition gaps and reconnect hiccups seamlessly
+// -------------------------------------------------------------
+const TICK_MS = 100;
+setInterval(() => {
+    for (const [channelKey, channel] of Object.entries(CHANNELS)) {
+        if (channel.clients.size === 0) {
+            // Trim idle buffer to nominal target so new listeners get an instant burst
+            if (channel.queue.totalBytes > channel.targetQueueBytes) {
+                channel.queue.trim(channel.targetQueueBytes);
+            }
+            continue;
+        }
+
+        const bytesPerSec = (channel.bitrate * 1000) / 8;
+        let bytesToSend = Math.round(bytesPerSec * (TICK_MS / 1000));
+
+        // Smooth rate pacing: if queue is overflowing, drain slightly faster (+5%)
+        if (channel.queue.totalBytes > channel.targetQueueBytes + 40000) {
+            bytesToSend = Math.round(bytesToSend * 1.05);
+        }
+
+        const chunk = channel.queue.pull(bytesToSend);
+        if (!chunk || chunk.length === 0) continue;
+
+        for (const clientObj of channel.clients) {
+            try {
+                clientObj.res.write(chunk);
+            } catch (err) {
+                removeClient(channelKey, clientObj);
+            }
+        }
+    }
+}, TICK_MS);
 
 // -------------------------------------------------------------
 // Helper to locate first clean MP3 frame header
@@ -308,12 +380,14 @@ const server = http.createServer((req, res) => {
     channel.clients.add(clientObj);
     console.log(`[Client Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}`);
 
-    // Send immediate audio burst from ring buffer, strictly aligned to first MP3 frame sync
-    if (channel.buffer.length > 0) {
-        const fullBuf = Buffer.concat(channel.buffer);
-        const offset = findMp3FrameStart(fullBuf);
+    // Send immediate audio burst from jitter queue, strictly aligned to first MP3 frame sync
+    if (channel.queue.totalBytes > 0) {
+        const fullBuf = channel.queue.peekAll();
+        const sliceLen = Math.min(fullBuf.length, channel.burstBytes || 160 * 1024);
+        const burstBuf = fullBuf.subarray(0, sliceLen);
+        const offset = findMp3FrameStart(burstBuf);
         try {
-            res.write(fullBuf.subarray(offset));
+            res.write(burstBuf.subarray(offset));
         } catch (e) {
             removeClient(resolvedPath, clientObj);
             return;
