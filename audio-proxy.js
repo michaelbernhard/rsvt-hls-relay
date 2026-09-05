@@ -78,7 +78,8 @@ const CHANNELS = {
         burstBytes: 160 * 1024, // 160 KB (~4s instant connect fill)
         isConnected: false,
         reconnectTimer: null,
-        isFirstChunkAfterConnect: true
+        isFirstChunkAfterConnect: true,
+        lastDisconnectByIp: new Map()
     },
     '/bloede.mp3': {
         name: 'Bløde Bølger',
@@ -93,7 +94,8 @@ const CHANNELS = {
         burstBytes: 64 * 1024, // 64 KB (~4s instant connect fill)
         isConnected: false,
         reconnectTimer: null,
-        isFirstChunkAfterConnect: true
+        isFirstChunkAfterConnect: true,
+        lastDisconnectByIp: new Map()
     }
 };
 
@@ -245,7 +247,11 @@ function removeClient(channelKey, clientObj) {
     if (channel && channel.clients.has(clientObj)) {
         channel.clients.delete(clientObj);
         const name = (clientObj.path && clientObj.path.includes('sonos')) ? 'Reservatet.fm LIVE (Sonos)' : channel.name;
-        console.log(`[Client Disconnect - ${name}] IP: ${clientObj.ip}, active clients: ${channel.clients.size}`);
+        const sessionSecs = Math.round((Date.now() - (clientObj.connectedAt || Date.now())) / 1000);
+        console.log(`[Client Disconnect - ${name}] IP: ${clientObj.ip}, session: ${sessionSecs}s, active clients: ${channel.clients.size}`);
+        // Track disconnect time per IP so next connect can show reconnect interval
+        if (!channel.lastDisconnectByIp) channel.lastDisconnectByIp = new Map();
+        channel.lastDisconnectByIp.set(clientObj.ip, Date.now());
     }
 }
 
@@ -255,12 +261,19 @@ for (const key of Object.keys(CHANNELS)) {
 }
 
 // -------------------------------------------------------------
-// Continuous Real-Time Audio Pacer (100ms ticks, 10 ticks/sec)
-// Delivers steady, gapless broadcast stream to all connected clients
-// Absorbs upstream song transition gaps and reconnect hiccups seamlessly
+// Continuous Real-Time Audio Pacer — drift-correcting wallclock-anchored loop
+// Uses setTimeout with drift compensation instead of setInterval to prevent
+// cumulative timer drift under Node.js GC pauses or event loop load.
+// At 320kbps, each 100ms tick must deliver exactly 4000 bytes. Even a 5ms
+// drift per tick compounds to 3+ seconds of starvation per minute — audible
+// as a Sonos buffer underrun. Wallclock anchoring eliminates this entirely.
 // -------------------------------------------------------------
 const TICK_MS = 100;
-setInterval(() => {
+
+function runPacerTick(expected) {
+    const now = Date.now();
+    const drift = now - expected;
+
     for (const [channelKey, channel] of Object.entries(CHANNELS)) {
         if (channel.clients.size === 0) {
             // Trim idle buffer to nominal target so new listeners get an instant burst
@@ -271,7 +284,11 @@ setInterval(() => {
         }
 
         const bytesPerSec = (channel.bitrate * 1000) / 8;
-        let bytesToSend = Math.round(bytesPerSec * (TICK_MS / 1000));
+
+        // Account for drift: if we fired late, send proportionally more bytes
+        // to compensate. Drift is clamped to +-50ms to avoid wild spikes.
+        const effectiveTick = TICK_MS + Math.max(-50, Math.min(50, drift));
+        let bytesToSend = Math.round(bytesPerSec * (effectiveTick / 1000));
 
         // Smooth rate pacing: if queue is overflowing, drain slightly faster (+5%)
         if (channel.queue.totalBytes > channel.targetQueueBytes + 40000) {
@@ -283,13 +300,28 @@ setInterval(() => {
 
         for (const clientObj of channel.clients) {
             try {
-                clientObj.res.write(chunk);
+                if (!clientObj.draining) {
+                    const ok = clientObj.res.write(chunk);
+                    if (!ok) {
+                        // TCP send buffer full — pause until drain to avoid data loss
+                        clientObj.draining = true;
+                        clientObj.res.once('drain', () => { clientObj.draining = false; });
+                    }
+                }
             } catch (err) {
                 removeClient(channelKey, clientObj);
             }
         }
     }
-}, TICK_MS);
+
+    // Schedule next tick anchored to absolute wallclock, not relative to now
+    const nextExpected = expected + TICK_MS;
+    const delay = Math.max(0, nextExpected - Date.now());
+    setTimeout(() => runPacerTick(nextExpected), delay);
+}
+
+// Kick off the drift-correcting pacer loop
+setTimeout(() => runPacerTick(Date.now() + TICK_MS), TICK_MS);
 
 // -------------------------------------------------------------
 // Helper to locate first clean MP3 frame header
@@ -351,6 +383,9 @@ const server = http.createServer((req, res) => {
         'Expires': '0',
         'Access-Control-Allow-Origin': '*',
         'Connection': 'keep-alive',
+        // Instruct Railway's edge proxy and any nginx intermediary NOT to buffer
+        // this response — critical for low-latency audio streaming
+        'X-Accel-Buffering': 'no',
         'icy-name': channel.icyName || channel.name,
         'icy-description': 'Reservatet.fm - ' + (channel.icyName || channel.name),
         'icy-pub': '1',
@@ -378,16 +413,30 @@ const server = http.createServer((req, res) => {
     };
 
     channel.clients.add(clientObj);
-    console.log(`[Client Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}`);
+    // Log time since last disconnect from this IP — helps identify Railway's 15-min forced TCP reset pattern
+    const lastDisconnect = channel.lastDisconnectByIp && channel.lastDisconnectByIp.get(clientIp);
+    const reconnectInfo = lastDisconnect ? ` [reconnect after ${Math.round((Date.now() - lastDisconnect) / 1000)}s]` : ' [first connect]';
+    console.log(`[Client Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}${reconnectInfo}`);
 
-    // Send immediate audio burst from jitter queue, strictly aligned to first MP3 frame sync
+    // Send maximum available audio burst from jitter queue on connect.
+    // Railway forces TCP disconnects every 15 minutes — Sonos must reconnect
+    // within ~2-4s. Sending the entire queue (up to 480KB = 12s at 320kbps)
+    // fills Sonos' internal decoder buffer maximally, giving it enough runway
+    // to survive Railway's reconnect gap without audible dropout.
+    clientObj.draining = false;
     if (channel.queue.totalBytes > 0) {
         const fullBuf = channel.queue.peekAll();
-        const sliceLen = Math.min(fullBuf.length, channel.burstBytes || 160 * 1024);
-        const burstBuf = fullBuf.subarray(0, sliceLen);
-        const offset = findMp3FrameStart(burstBuf);
+        // Send ALL available buffered audio (not just burstBytes) to maximise
+        // Sonos' internal playback buffer depth on every connect or reconnect
+        const offset = findMp3FrameStart(fullBuf);
+        const burstBuf = fullBuf.subarray(offset);
         try {
-            res.write(burstBuf.subarray(offset));
+            const ok = res.write(burstBuf);
+            if (!ok) {
+                clientObj.draining = true;
+                res.once('drain', () => { clientObj.draining = false; });
+            }
+            console.log(`[Burst - ${streamName}] Sent ${burstBuf.length} bytes (${(burstBuf.length / 1024).toFixed(0)}KB, ~${(burstBuf.length / ((channel.bitrate * 1000) / 8)).toFixed(1)}s) to ${clientIp}`);
         } catch (e) {
             removeClient(resolvedPath, clientObj);
             return;
