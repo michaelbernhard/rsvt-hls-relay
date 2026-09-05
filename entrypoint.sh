@@ -21,37 +21,32 @@ mkdir -p /var/log/nginx /run
     done
 ) &
 
-# Function to run continuous FFmpeg HLS transcode optimized for Sonos
-# Key fixes vs. previous config:
-#   - hls_time 4: shorter segments = Sonos recovers faster from any gap
-#   - hls_list_size 10: 40s window, enough buffer without confusing Sonos
-#   - delete_segments: removes old .ts files, prevents Sonos playlist parser confusion
-#   - omit_endlist: marks stream as live (no EXT-X-ENDLIST), Sonos never stops
-#   - hls_start_number_source epoch: segment numbers are Unix timestamps, so they
-#     always increase monotonically even after FFmpeg reconnects — Sonos never
-#     requests a segment number it has already passed, no gaps, no hak
-#   - reconnect_delay_max 5: give Radiojar 5s to recover before retry
+# Function to run continuous FFmpeg HLS transcode (broadcast standard)
+# Key fixes:
+#   - Continuous monotonic sequence numbering (eliminates epoch jumps that cause iOS/Sonos drops)
+#   - Robust reconnect flags (-reconnect_on_network_error, -reconnect_on_http_error)
+#   - delete_segments + append_list + omit_endlist for stable live rolling buffer
 start_stream_transcoder() {
     local stream_url="$1"
     local output_dir="$2"
     local prefix="$3"
     local stream_label="$4"
 
-    echo "Starting HLS packager for $stream_label (4s segments, epoch numbering, Sonos-optimized)..."
+    echo "Starting HLS packager for $stream_label (broadcast standard)..."
 
     while true; do
         ffmpeg -hide_banner -loglevel warning \
             -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+            -reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx \
             -probesize 64k -analyzeduration 500000 \
             -i "$stream_url" \
             -c:a aac -b:a 256k -ar 48000 -ac 2 \
             -f hls \
             -hls_time 6 \
-            -hls_list_size 30 \
-            -hls_delete_threshold 10 \
+            -hls_list_size 20 \
+            -hls_delete_threshold 5 \
             -hls_flags append_list+delete_segments+omit_endlist+independent_segments \
             -hls_segment_type mpegts \
-            -hls_start_number_source epoch \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
             "$output_dir/${prefix}.m3u8" || true
 

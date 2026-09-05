@@ -1,6 +1,5 @@
 const http = require('http');
 const https = require('https');
-const { spawn } = require('child_process');
 
 // Configuration for live stream channels
 const CHANNELS = {
@@ -13,21 +12,7 @@ const CHANNELS = {
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 512 * 1024, // 512 KB (~13 seconds buffer for instant start and fault tolerance)
-        isConnected: false,
-        reconnectTimer: null
-    },
-    '/sonos.mp3': {
-        name: 'Reservatet.fm LIVE (Sonos)',
-        icyName: 'Reservatet.fm LIVE',
-        type: 'ffmpeg',
-        sourceUrl: 'https://cdn01.radio.cloud/RES-COP-CINURAUDIO01',
-        bitrate: 192,
-        sampleRate: 48000,
-        clients: new Set(),
-        buffer: [],
-        bufferBytes: 0,
-        maxBufferBytes: 512 * 1024, // 512 KB (~22 seconds buffer for instant start and high fault tolerance)
+        maxBufferBytes: 64 * 1024, // 64 KB (~1.5s standard broadcast burst-on-connect)
         isConnected: false,
         reconnectTimer: null
     },
@@ -40,18 +25,19 @@ const CHANNELS = {
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 512 * 1024,
+        maxBufferBytes: 64 * 1024, // 64 KB (~4s standard broadcast burst-on-connect)
         isConnected: false,
         reconnectTimer: null
     }
 };
 
-// Aliases
+// Aliases - All live endpoints (/live.mp3, /sonos.mp3, /) share the single stable Radio.cloud ingest
 const ALIASES = {
     '/': '/live.mp3',
     '/stream.mp3': '/live.mp3',
-    '/bloedeboelger.mp3': '/bloede.mp3',
-    '/live-sonos.mp3': '/sonos.mp3'
+    '/sonos.mp3': '/live.mp3',
+    '/live-sonos.mp3': '/live.mp3',
+    '/bloedeboelger.mp3': '/bloede.mp3'
 };
 
 // -------------------------------------------------------------
@@ -186,104 +172,8 @@ function scheduleReconnect(channelKey, delayMs) {
 
     channel.reconnectTimer = setTimeout(() => {
         channel.reconnectTimer = null;
-        if (channel.type === 'ffmpeg') {
-            startFfmpegIngest(channelKey);
-        } else {
-            startIngest(channelKey);
-        }
+        startIngest(channelKey);
     }, delayMs);
-}
-
-// -------------------------------------------------------------
-// FFmpeg Real-Time Transcoder Ingest (Clean 192k MP3 for Sonos)
-// -------------------------------------------------------------
-function startFfmpegIngest(channelKey) {
-    const channel = CHANNELS[channelKey];
-    if (!channel) return;
-
-    if (channel.reconnectTimer) {
-        clearTimeout(channel.reconnectTimer);
-        channel.reconnectTimer = null;
-    }
-
-    channel.generationId = (channel.generationId || 0) + 1;
-    const currentGen = channel.generationId;
-
-    if (channel.activeProc) {
-        try { channel.activeProc.kill('SIGKILL'); } catch (e) {}
-        channel.activeProc = null;
-    }
-
-    console.log(`[Ingest FFmpeg - ${channel.name} (Gen ${currentGen})] Transcoding 192k MP3 from: ${channel.sourceUrl}`);
-
-    const args = [
-        '-hide_banner',
-        '-loglevel', 'warning',
-        '-reconnect', '1',
-        '-reconnect_at_eof', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
-        '-probesize', '64k',
-        '-analyzeduration', '500000',
-        '-i', channel.sourceUrl,
-        '-vn',
-        '-c:a', 'libmp3lame',
-        '-b:a', `${channel.bitrate || 192}k`,
-        '-ar', String(channel.sampleRate || 48000),
-        '-ac', '2',
-        '-f', 'mp3',
-        'pipe:1'
-    ];
-
-    const proc = spawn('ffmpeg', args, {
-        stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    channel.activeProc = proc;
-    channel.isConnected = true;
-
-    proc.stdout.on('data', (chunk) => {
-        if (channel.generationId !== currentGen) return;
-
-        // 1. Append to Ring Buffer
-        channel.buffer.push(chunk);
-        channel.bufferBytes += chunk.length;
-
-        while (channel.bufferBytes > channel.maxBufferBytes && channel.buffer.length > 1) {
-            const removed = channel.buffer.shift();
-            channel.bufferBytes -= removed.length;
-        }
-
-        // 2. Broadcast to all active Sonos clients
-        for (const clientObj of channel.clients) {
-            try {
-                clientObj.res.write(chunk);
-            } catch (err) {
-                removeClient(channelKey, clientObj);
-            }
-        }
-    });
-
-    proc.stderr.on('data', (data) => {
-        const msg = data.toString().trim();
-        if (msg) console.warn(`[FFmpeg - ${channel.name}] ${msg}`);
-    });
-
-    proc.on('close', (code) => {
-        if (channel.generationId !== currentGen) return;
-        console.warn(`[FFmpeg - ${channel.name}] Process exited with code ${code}. Auto-recovering in 1s...`);
-        channel.isConnected = false;
-        channel.activeProc = null;
-        scheduleReconnect(channelKey, 1000);
-    });
-
-    proc.on('error', (err) => {
-        if (channel.generationId !== currentGen) return;
-        console.error(`[FFmpeg - ${channel.name}] Process error: ${err.message}. Retrying in 2s...`);
-        channel.isConnected = false;
-        channel.activeProc = null;
-        scheduleReconnect(channelKey, 2000);
-    });
 }
 
 // -------------------------------------------------------------
@@ -293,17 +183,14 @@ function removeClient(channelKey, clientObj) {
     const channel = CHANNELS[channelKey];
     if (channel && channel.clients.has(clientObj)) {
         channel.clients.delete(clientObj);
-        console.log(`[Client Disconnect - ${channel.name}] IP: ${clientObj.ip}, active clients: ${channel.clients.size}`);
+        const name = (clientObj.path && clientObj.path.includes('sonos')) ? 'Reservatet.fm LIVE (Sonos)' : channel.name;
+        console.log(`[Client Disconnect - ${name}] IP: ${clientObj.ip}, active clients: ${channel.clients.size}`);
     }
 }
 
 // Start ingest for all channels immediately
 for (const key of Object.keys(CHANNELS)) {
-    if (CHANNELS[key].type === 'ffmpeg') {
-        startFfmpegIngest(key);
-    } else {
-        startIngest(key);
-    }
+    startIngest(key);
 }
 
 // -------------------------------------------------------------
@@ -379,16 +266,21 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    const isSonos = path.includes('sonos');
+    const streamName = isSonos ? 'Reservatet.fm LIVE (Sonos)' : channel.name;
+
     const clientObj = {
         res,
         req,
         ip: clientIp,
         userAgent,
-        connectedAt: Date.now()
+        connectedAt: Date.now(),
+        path: path,
+        streamName: streamName
     };
 
     channel.clients.add(clientObj);
-    console.log(`[Client Connect - ${channel.name}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}`);
+    console.log(`[Client Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}`);
 
     // Send immediate audio burst from ring buffer, strictly aligned to first MP3 frame sync
     if (channel.buffer.length > 0) {
@@ -403,7 +295,7 @@ const server = http.createServer((req, res) => {
     }
 
     // Ping dashboard API immediately upon connection
-    sendHeartbeat(clientIp, userAgent, channel.name);
+    sendHeartbeat(clientIp, userAgent, streamName);
 
     // Clean up on disconnect
     req.on('close', () => removeClient(resolvedPath, clientObj));
@@ -434,7 +326,7 @@ setInterval(() => {
         for (const clientObj of channel.clients) {
             setTimeout(() => {
                 if (channel.clients.has(clientObj)) {
-                    sendHeartbeat(clientObj.ip, clientObj.userAgent, channel.name);
+                    sendHeartbeat(clientObj.ip, clientObj.userAgent, clientObj.streamName || channel.name);
                 }
             }, delay);
             delay += 100; // 100ms between each client ping
