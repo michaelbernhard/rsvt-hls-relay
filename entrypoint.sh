@@ -7,6 +7,7 @@ echo "Configuring Nginx on port $APP_PORT..."
 # Replace port in nginx.conf if assigned dynamically by Railway
 sed -i "s/listen 8080/listen $APP_PORT/g" /etc/nginx/nginx.conf
 sed -i "s/listen \[::\]:8080/listen \[::\]:$APP_PORT/g" /etc/nginx/nginx.conf
+nginx -t
 
 # Prepare in-memory RAM disk directory for HLS
 mkdir -p /dev/shm/hls
