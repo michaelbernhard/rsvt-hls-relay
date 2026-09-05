@@ -1,5 +1,19 @@
+process.on('uncaughtException', (err) => {
+    console.error('[Audio Proxy UncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[Audio Proxy UnhandledRejection]', reason);
+});
+
 const http = require('http');
 const https = require('https');
+
+// Persistent keep-alive agent for non-blocking dashboard telemetry
+const heartbeatAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 5,
+    timeout: 5000
+});
 
 // Configuration for live stream channels
 const CHANNELS = {
@@ -12,9 +26,10 @@ const CHANNELS = {
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 64 * 1024, // 64 KB (~1.5s standard broadcast burst-on-connect)
+        maxBufferBytes: 384 * 1024, // 384 KB (~9.6s broadcast burst cushion for Sonos stability)
         isConnected: false,
-        reconnectTimer: null
+        reconnectTimer: null,
+        isFirstChunkAfterConnect: true
     },
     '/bloede.mp3': {
         name: 'Bløde Bølger',
@@ -25,9 +40,10 @@ const CHANNELS = {
         clients: new Set(),
         buffer: [],
         bufferBytes: 0,
-        maxBufferBytes: 64 * 1024, // 64 KB (~4s standard broadcast burst-on-connect)
+        maxBufferBytes: 160 * 1024, // 160 KB (~10s broadcast burst cushion for Sonos stability)
         isConnected: false,
-        reconnectTimer: null
+        reconnectTimer: null,
+        isFirstChunkAfterConnect: true
     }
 };
 
@@ -99,6 +115,7 @@ function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
             return;
         }
 
+        channel.isFirstChunkAfterConnect = true;
         channel.activeReq = req;
         channel.activeRes = res;
         channel.isConnected = true;
@@ -106,6 +123,15 @@ function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
 
         res.on('data', (chunk) => {
             if (channel.generationId !== currentGen) return;
+
+            // Ensure first chunk after upstream reconnect aligns strictly to MP3 frame boundary
+            if (channel.isFirstChunkAfterConnect) {
+                channel.isFirstChunkAfterConnect = false;
+                const offset = findMp3FrameStart(chunk);
+                if (offset > 0) {
+                    chunk = chunk.subarray(offset);
+                }
+            }
 
             // 1. Append to Ring Buffer
             channel.buffer.push(chunk);
@@ -131,19 +157,19 @@ function startIngest(channelKey, targetUrl = null, redirectDepth = 0) {
 
         res.on('end', () => {
             if (channel.generationId !== currentGen) return;
-            console.warn(`[Ingest - ${channel.name}] Upstream stream ended. Auto-reconnecting in 100ms...`);
+            console.warn(`[Ingest - ${channel.name}] Upstream stream ended. Auto-reconnecting in 10ms...`);
             channel.isConnected = false;
             channel.activeRes = null;
-            scheduleReconnect(channelKey, 100);
+            scheduleReconnect(channelKey, 10);
         });
 
         res.on('error', (err) => {
             if (channel.generationId !== currentGen) return;
-            console.error(`[Ingest - ${channel.name}] Upstream stream error: ${err.message}. Reconnecting in 200ms...`);
+            console.error(`[Ingest - ${channel.name}] Upstream stream error: ${err.message}. Reconnecting in 50ms...`);
             channel.isConnected = false;
             channel.activeRes = null;
             res.destroy();
-            scheduleReconnect(channelKey, 200);
+            scheduleReconnect(channelKey, 50);
         });
     });
 
@@ -307,17 +333,28 @@ const server = http.createServer((req, res) => {
 // Periodic Heartbeat to PostgreSQL via Dashboard API (every 20s)
 // -------------------------------------------------------------
 function sendHeartbeat(clientIp, userAgent, streamName) {
-    if (typeof fetch !== 'undefined') {
-        fetch('https://reservatet.fm/api/dashboard/hls', {
+    try {
+        const payload = JSON.stringify({
+            client: clientIp,
+            userAgent: userAgent,
+            stream: streamName
+        });
+        const req = https.request('https://reservatet.fm/api/dashboard/hls', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                client: clientIp,
-                userAgent: userAgent,
-                stream: streamName
-            })
-        }).catch(() => {});
-    }
+            agent: heartbeatAgent,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
+            },
+            timeout: 4000
+        }, (res) => {
+            res.resume();
+        });
+        req.on('error', () => {});
+        req.on('timeout', () => req.destroy());
+        req.write(payload);
+        req.end();
+    } catch (e) {}
 }
 
 setInterval(() => {

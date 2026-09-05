@@ -56,13 +56,25 @@ start_stream_transcoder() {
     done
 }
 
-# Start Direct MP3 Audio Proxy in background (port 8082)
-echo "Starting Node.js Direct MP3 Audio Proxy..."
-node /audio-proxy.js &
+# Start Direct MP3 Audio Proxy in background with supervisor (port 8082)
+(
+    while true; do
+        echo "Starting Node.js Direct MP3 Audio Proxy..."
+        node /audio-proxy.js || true
+        echo "[Audio Proxy] Process exited with code $?. Auto-recovering in 1s..."
+        sleep 1
+    done
+) &
 
-# Start Stats Server in background (port 8081)
-echo "Starting Stats Server..."
-node /stats-server.js &
+# Start Stats Server in background with supervisor (port 8081)
+(
+    while true; do
+        echo "Starting Stats Server..."
+        node /stats-server.js || true
+        echo "[Stats Server] Process exited with code $?. Auto-recovering in 1s..."
+        sleep 1
+    done
+) &
 
 # Start FFmpeg transcoders in background
 start_stream_transcoder "https://cdn01.radio.cloud/RES-COP-CINURAUDIO01" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
