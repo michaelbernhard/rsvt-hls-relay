@@ -8,6 +8,28 @@ process.on('unhandledRejection', (reason) => {
 const http = require('http');
 const https = require('https');
 
+// -------------------------------------------------------------
+// Listener exclusion filter — keeps bots and monitoring services
+// out of listener statistics. Add IPs or UA substrings here.
+// -------------------------------------------------------------
+const EXCLUDED_IPS = new Set([
+    '109.175.213.2',   // autopo.st Cloud Logger (Kingsclere, UK)
+]);
+const EXCLUDED_UA_PATTERNS = [
+    'cloud logger',    // autopo.st and similar stream monitors
+    'autopo.st',
+    'uptimerobot',
+    'pingdom',
+    'statuspage',
+    'healthcheck',
+];
+
+function isExcludedListener(ip, userAgent) {
+    if (EXCLUDED_IPS.has(ip)) return true;
+    const ua = (userAgent || '').toLowerCase();
+    return EXCLUDED_UA_PATTERNS.some(p => ua.includes(p));
+}
+
 // Persistent keep-alive agent for non-blocking dashboard telemetry
 const heartbeatAgent = new https.Agent({
     keepAlive: true,
@@ -413,10 +435,11 @@ const server = http.createServer((req, res) => {
     };
 
     channel.clients.add(clientObj);
-    // Log time since last disconnect from this IP — helps identify Railway's 15-min forced TCP reset pattern
+    // Log time since last disconnect from this IP — helps identify reconnect patterns
     const lastDisconnect = channel.lastDisconnectByIp && channel.lastDisconnectByIp.get(clientIp);
     const reconnectInfo = lastDisconnect ? ` [reconnect after ${Math.round((Date.now() - lastDisconnect) / 1000)}s]` : ' [first connect]';
-    console.log(`[Client Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}${reconnectInfo}`);
+    const isMonitor = isExcludedListener(clientIp, userAgent);
+    console.log(`[${isMonitor ? 'Monitor' : 'Client'} Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}${reconnectInfo}${isMonitor ? ' [excluded from stats]' : ''}`);
 
     // Send maximum available audio burst from jitter queue on connect.
     // Railway forces TCP disconnects every 15 minutes — Sonos must reconnect
@@ -456,6 +479,8 @@ const server = http.createServer((req, res) => {
 // Periodic Heartbeat to PostgreSQL via Dashboard API (every 20s)
 // -------------------------------------------------------------
 function sendHeartbeat(clientIp, userAgent, streamName) {
+    // Skip monitoring bots and audio loggers — they are not real listeners
+    if (isExcludedListener(clientIp, userAgent)) return;
     try {
         const payload = JSON.stringify({
             client: clientIp,
