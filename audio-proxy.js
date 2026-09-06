@@ -90,7 +90,7 @@ const CHANNELS = {
     '/live.mp3': {
         name: 'Reservatet.fm LIVE',
         icyName: 'Reservatet.fm LIVE',
-        sourceUrl: 'https://cdn01.radio.cloud/RES-COP-CINURAUDIO01',
+        sourceUrl: 'http://127.0.0.1:8000/live.mp3',
         bitrate: 320,
         sampleRate: 48000,
         clients: new Set(),
@@ -106,7 +106,7 @@ const CHANNELS = {
     '/bloede.mp3': {
         name: 'Bløde Bølger',
         icyName: 'Bloede Boelger',
-        sourceUrl: 'http://stream.radiojar.com/4hge3m401bpwv',
+        sourceUrl: 'http://127.0.0.1:8000/bloede.mp3',
         bitrate: 128,
         sampleRate: 44100,
         clients: new Set(),
@@ -449,10 +449,13 @@ const server = http.createServer((req, res) => {
     clientObj.draining = false;
     if (channel.queue.totalBytes > 0) {
         const fullBuf = channel.queue.peekAll();
-        // Send ALL available buffered audio (not just burstBytes) to maximise
-        // Sonos' internal playback buffer depth on every connect or reconnect
-        const offset = findMp3FrameStart(fullBuf);
-        const burstBuf = fullBuf.subarray(offset);
+        // Send a clean, moderate burst (80KB for mobile apps/browsers ~2s, 160KB for Sonos ~4s)
+        // Taking the most recent audio ensures zero latency and no start stutter!
+        const maxBurst = isSonos ? 160 * 1024 : 80 * 1024;
+        const targetLen = Math.min(fullBuf.length, maxBurst);
+        const sub = fullBuf.subarray(fullBuf.length - targetLen);
+        const offset = findMp3FrameStart(sub);
+        const burstBuf = sub.subarray(offset);
         try {
             const ok = res.write(burstBuf);
             if (!ok) {
