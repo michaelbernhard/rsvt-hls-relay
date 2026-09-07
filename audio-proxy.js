@@ -47,6 +47,14 @@ const CHANNELS = {
         sampleRate: 48000,
         clients: new Set()
     },
+    '/sonos.mp3': {
+        name: 'Reservatet.fm LIVE (Sonos)',
+        icyName: 'Reservatet.fm LIVE',
+        icecastPath: '/sonos.mp3',
+        bitrate: 192,
+        sampleRate: 48000,
+        clients: new Set()
+    },
     '/bloede.mp3': {
         name: 'Bløde Bølger',
         icyName: 'Bloede Boelger',
@@ -57,12 +65,11 @@ const CHANNELS = {
     }
 };
 
-// Aliases - All live endpoints (/live.mp3, /sonos.mp3, /) share the single stable Icecast mount
+// Aliases
 const ALIASES = {
     '/': '/live.mp3',
     '/stream.mp3': '/live.mp3',
-    '/sonos.mp3': '/live.mp3',
-    '/live-sonos.mp3': '/live.mp3',
+    '/live-sonos.mp3': '/sonos.mp3',
     '/bloedeboelger.mp3': '/bloede.mp3'
 };
 

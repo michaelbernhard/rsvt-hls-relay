@@ -1,16 +1,16 @@
 <icecast>
     <location>Denmark</location>
-    <admin>admin@reservatet.fm</admin>
-    <hostname>rsvt-hls-relay-production-dcfe.up.railway.app</hostname>
+    <admin>info@1976.dk</admin>
+    <hostname>stream.reservatet.fm</hostname>
 
     <limits>
         <clients>2000</clients>
         <sources>10</sources>
-        <queue-size>524288</queue-size>
-        <client-timeout>30</client-timeout>
+        <queue-size>2097152</queue-size>
+        <client-timeout>60</client-timeout>
         <header-timeout>15</header-timeout>
-        <source-timeout>10</source-timeout>
-        <burst-size>65536</burst-size>
+        <source-timeout>15</source-timeout>
+        <burst-size>524288</burst-size>
     </limits>
 
     <authentication>
@@ -21,53 +21,57 @@
     </authentication>
 
     <listen-socket>
-        <port>8080</port>
-        <bind-address>0.0.0.0</bind-address>
+        <port>8000</port>
+        <bind-address>127.0.0.1</bind-address>
     </listen-socket>
 
+    <!-- Mount for 320k Radio.cloud live stream -->
     <mount type="normal">
         <mount-name>/live.mp3</mount-name>
-        <burst-size>65536</burst-size>
-        <queue-size>524288</queue-size>
-        <public>1</public>
-        <stream-name>Reservatet.fm LIVE</stream-name>
-        <stream-description>Reservatet.fm LIVE</stream-description>
-        <stream-url>https://reservatet.fm</stream-url>
-        <genre>Eclectic</genre>
-        <bitrate>256</bitrate>
-        <type>audio/mpeg</type>
+        <burst-size>524288</burst-size>
+        <queue-size>2097152</queue-size>
     </mount>
 
+    <!-- Dedicated Mount for 192k Sonos clean stream -->
     <mount type="normal">
-        <mount-name>/stream.mp3</mount-name>
-        <burst-size>65536</burst-size>
-        <queue-size>524288</queue-size>
-        <public>1</public>
-        <stream-name>Reservatet.fm LIVE</stream-name>
-        <stream-description>Reservatet.fm LIVE</stream-description>
-        <stream-url>https://reservatet.fm</stream-url>
-        <genre>Eclectic</genre>
-        <bitrate>256</bitrate>
-        <type>audio/mpeg</type>
+        <mount-name>/sonos.mp3</mount-name>
+        <burst-size>524288</burst-size>
+        <queue-size>2097152</queue-size>
     </mount>
 
+    <!-- Mount for Bloede Boelger stream -->
     <mount type="normal">
-        <mount-name>/bloedeboelger.mp3</mount-name>
-        <burst-size>65536</burst-size>
-        <queue-size>524288</queue-size>
-        <public>1</public>
-        <stream-name>Bløde Bølger</stream-name>
-        <stream-description>Bløde Bølger</stream-description>
-        <stream-url>https://reservatet.fm</stream-url>
-        <genre>Chill</genre>
-        <bitrate>256</bitrate>
-        <type>audio/mpeg</type>
+        <mount-name>/bloede.mp3</mount-name>
+        <burst-size>262144</burst-size>
+        <queue-size>1048576</queue-size>
     </mount>
+
+    <relay>
+        <local-mount>/live.mp3</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://cdn01.radio.cloud:80/RES-COP-CINURAUDIO01</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+    </relay>
+
+    <relay>
+        <local-mount>/bloede.mp3</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://stream.radiojar.com/4hge3m401bpwv</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+    </relay>
 
     <paths>
-        <logdir>/var/log/icecast</logdir>
-        <webroot>/usr/share/icecast/web</webroot>
-        <adminroot>/usr/share/icecast/admin</adminroot>
+        <basedir>/usr/share/icecast2</basedir>
+        <logdir>/var/log/icecast2</logdir>
+        <webroot>/usr/share/icecast2/web</webroot>
+        <adminroot>/usr/share/icecast2/admin</adminroot>
+        <reportxmldb>/usr/share/icecast2/report-db.xml</reportxmldb>
+        <alias source="/" destination="/live.mp3"/>
+        <alias source="/stream.mp3" destination="/live.mp3"/>
     </paths>
 
     <logging>
@@ -79,9 +83,5 @@
 
     <security>
         <chroot>0</chroot>
-        <changeowner>
-            <user>icecast</user>
-            <group>icecast</group>
-        </changeowner>
     </security>
 </icecast>
