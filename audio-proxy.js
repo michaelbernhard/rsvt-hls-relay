@@ -51,7 +51,7 @@ const CHANNELS = {
         name: 'Reservatet.fm LIVE (Sonos)',
         icyName: 'Reservatet.fm LIVE',
         icecastPath: '/sonos.mp3',
-        bitrate: 192,
+        bitrate: 320,
         sampleRate: 48000,
         clients: new Set()
     },
