@@ -206,13 +206,16 @@ const server = http.createServer((req, res) => {
             'X-Forwarded-For': clientIp
         }
     }, (icecastRes) => {
+        // Disable chunked transfer encoding to deliver pure continuous binary MP3
+        res.useChunkedEncodingByDefault = false;
+
         res.writeHead(icecastRes.statusCode || 200, {
             'Content-Type': 'audio/mpeg',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
             'Expires': '0',
             'Access-Control-Allow-Origin': '*',
-            'Connection': 'keep-alive',
+            'Connection': 'close',
             'X-Accel-Buffering': 'no',
             'icy-name': channel.icyName || channel.name,
             'icy-description': 'Reservatet.fm - ' + (channel.icyName || channel.name),

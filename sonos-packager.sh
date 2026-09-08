@@ -10,6 +10,7 @@ while true; do
         -reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx \
         -probesize 64k -analyzeduration 500000 \
         -i "https://cdn01.radio.cloud/RES-COP-CINURAUDIO01" \
+        -af "aresample=async=1" \
         -vn \
         -c:a libmp3lame \
         -b:a 192k \

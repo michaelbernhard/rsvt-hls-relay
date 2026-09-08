@@ -35,8 +35,8 @@
     <!-- Dedicated Mount for 192k Sonos clean stream -->
     <mount type="normal">
         <mount-name>/sonos.mp3</mount-name>
-        <burst-size>524288</burst-size>
-        <queue-size>2097152</queue-size>
+        <burst-size>131072</burst-size>
+        <queue-size>1048576</queue-size>
     </mount>
 
     <!-- Mount for Bloede Boelger stream -->
