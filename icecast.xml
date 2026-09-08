@@ -1,16 +1,16 @@
 <icecast>
-    <location>Denmark</location>
-    <admin>info@1976.dk</admin>
+    <location>Copenhagen, Denmark</location>
+    <admin>admin@reservatet.fm</admin>
     <hostname>stream.reservatet.fm</hostname>
 
     <limits>
         <clients>2000</clients>
         <sources>10</sources>
-        <queue-size>2097152</queue-size>
-        <client-timeout>60</client-timeout>
+        <queue-size>4194304</queue-size>
+        <client-timeout>90</client-timeout>
         <header-timeout>15</header-timeout>
-        <source-timeout>15</source-timeout>
-        <burst-size>524288</burst-size>
+        <source-timeout>30</source-timeout>
+        <burst-size>262144</burst-size>
     </limits>
 
     <authentication>
@@ -28,15 +28,15 @@
     <!-- Mount for 320k Radio.cloud live stream -->
     <mount type="normal">
         <mount-name>/live.mp3</mount-name>
-        <burst-size>524288</burst-size>
-        <queue-size>2097152</queue-size>
+        <burst-size>262144</burst-size>
+        <queue-size>4194304</queue-size>
     </mount>
 
-    <!-- Dedicated Mount for 192k Sonos clean stream -->
+    <!-- Native C-Relay Mount for Sonos: Directly relayed from Radio.cloud with zero transcode drift -->
     <mount type="normal">
         <mount-name>/sonos.mp3</mount-name>
-        <burst-size>131072</burst-size>
-        <queue-size>1048576</queue-size>
+        <burst-size>262144</burst-size>
+        <queue-size>4194304</queue-size>
     </mount>
 
     <!-- Mount for Bloede Boelger stream -->
@@ -56,6 +56,15 @@
     </relay>
 
     <relay>
+        <local-mount>/sonos.mp3</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://cdn01.radio.cloud:80/RES-COP-CINURAUDIO01</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+    </relay>
+
+    <relay>
         <local-mount>/bloede.mp3</local-mount>
         <on-demand>false</on-demand>
         <upstream type="normal">
@@ -65,7 +74,6 @@
     </relay>
 
     <paths>
-        <basedir>/usr/share/icecast2</basedir>
         <logdir>/var/log/icecast2</logdir>
         <webroot>/usr/share/icecast2/web</webroot>
         <adminroot>/usr/share/icecast2/admin</adminroot>
@@ -82,6 +90,6 @@
     </logging>
 
     <security>
-        <chroot>0</chroot>
+        <chroot>false</chroot>
     </security>
 </icecast>
