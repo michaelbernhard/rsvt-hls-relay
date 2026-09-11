@@ -10,6 +10,7 @@
         <client-timeout>90</client-timeout>
         <header-timeout>15</header-timeout>
         <source-timeout>30</source-timeout>
+        <burst-on-connect>1</burst-on-connect>
         <burst-size>262144</burst-size>
     </limits>
 
@@ -32,11 +33,14 @@
         <queue-size>4194304</queue-size>
     </mount>
 
-    <!-- Native C-Relay Mount for Sonos: Directly relayed from Radio.cloud with zero transcode drift -->
+    <!-- Dedicated Mount for 192k Sonos clean stream with 1MB (43.7s) burst buffer and zero clock drift -->
     <mount type="normal">
         <mount-name>/sonos.mp3</mount-name>
-        <burst-size>262144</burst-size>
+        <burst-on-connect>1</burst-on-connect>
+        <burst-size>1048576</burst-size>
         <queue-size>4194304</queue-size>
+        <client-timeout>90</client-timeout>
+        <source-timeout>30</source-timeout>
     </mount>
 
     <!-- Mount for Bloede Boelger stream -->
@@ -48,15 +52,6 @@
 
     <relay>
         <local-mount>/live.mp3</local-mount>
-        <on-demand>false</on-demand>
-        <upstream type="normal">
-            <uri>http://cdn01.radio.cloud:80/RES-COP-CINURAUDIO01</uri>
-            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
-        </upstream>
-    </relay>
-
-    <relay>
-        <local-mount>/sonos.mp3</local-mount>
         <on-demand>false</on-demand>
         <upstream type="normal">
             <uri>http://cdn01.radio.cloud:80/RES-COP-CINURAUDIO01</uri>
