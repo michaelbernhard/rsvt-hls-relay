@@ -59,15 +59,22 @@ function isDatacenterIp(ip) {
     if (/^(20|40|51)\./.test(clean)) return true;
     // DigitalOcean
     if (/^(143\.244|164\.90|159\.65|138\.68|167\.99|134\.209|178\.62|104\.248)\./.test(clean)) return true;
-    // Cloudflare edge / worker
-    if (/^(172\.64|104\.(1[6-9]|2[0-9]|3[0-1]|164))\./.test(clean)) return true;
+    // Cloudflare edge / worker / WARP
+    if (/^(172\.64|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
+    // Hurricane Electric / Shadowserver
+    if (/^65\.49\./.test(clean)) return true;
+    // Akamai / Linode cloud
+    if (/^172\.232\./.test(clean)) return true;
+    // Layer7 / M247 server networks
+    if (/^91\.239\./.test(clean)) return true;
     return false;
 }
 
 function isExcludedListener(ip, userAgent) {
     if (EXCLUDED_IPS.has(ip)) return true;
     if (isDatacenterIp(ip)) return true;
-    const ua = (userAgent || '').toLowerCase();
+    const ua = (userAgent || '').toLowerCase().trim();
+    if (ua === 'mozilla/5.0') return true;
     return EXCLUDED_UA_PATTERNS.some(p => ua.includes(p));
 }
 
@@ -149,6 +156,32 @@ function sendHeartbeat(clientIp, userAgent, streamName) {
                 'Content-Length': Buffer.byteLength(payload)
             },
             timeout: 4000
+        }, (res) => {
+            res.resume();
+        });
+        req.on('error', () => {});
+        req.on('timeout', () => req.destroy());
+        req.write(payload);
+        req.end();
+    } catch (e) {}
+}
+
+function notifyDisconnect(clientIp, streamName) {
+    if (isExcludedListener(clientIp)) return;
+    try {
+        const payload = JSON.stringify({
+            client: clientIp,
+            stream: streamName,
+            event: 'disconnect'
+        });
+        const req = https.request('https://reservatet.fm/api/dashboard/hls', {
+            method: 'POST',
+            agent: heartbeatAgent,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
+            },
+            timeout: 3000
         }, (res) => {
             res.resume();
         });
@@ -245,8 +278,13 @@ const server = http.createServer((req, res) => {
     const isMonitor = isExcludedListener(clientIp, userAgent);
     console.log(`[${isMonitor ? 'Monitor' : 'Client'} Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}${isMonitor ? ' [excluded from stats]' : ''}`);
 
-    // Ping dashboard API immediately upon connection (if not excluded)
-    sendHeartbeat(clientIp, userAgent, streamName);
+    // Only register listener in database if connection stays open for at least 15 seconds
+    // This completely ignores 1-second port scanners and brief network probes
+    const initialHeartbeatTimer = setTimeout(() => {
+        if (channel.clients.has(clientObj)) {
+            sendHeartbeat(clientIp, userAgent, streamName);
+        }
+    }, 15000);
 
     // Proxy audio stream directly from local Icecast instance
     const icecastReq = http.request({
@@ -298,9 +336,11 @@ const server = http.createServer((req, res) => {
     const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        clearTimeout(initialHeartbeatTimer);
         if (maxSessionTimer) clearTimeout(maxSessionTimer);
         icecastReq.destroy();
         removeClient(resolvedPath, clientObj);
+        notifyDisconnect(clientIp, streamName);
     };
 
     // Auto-disconnect continuous stream connections after 12 hours (prevents zombie bots)
