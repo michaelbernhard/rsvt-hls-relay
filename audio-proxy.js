@@ -9,12 +9,14 @@ const http = require('http');
 const https = require('https');
 
 // -------------------------------------------------------------
-// Listener exclusion filter — keeps bots and monitoring services
-// out of listener statistics. Add IPs or UA substrings here.
+// Listener exclusion & security filters:
+// 1. Keeps bots and datacenters out of listener statistics.
+// 2. Blocks aggressive scanners (LeakIX, SiteRadar, etc.) immediately.
 // -------------------------------------------------------------
 const EXCLUDED_IPS = new Set([
     '109.175.213.2',   // autopo.st Cloud Logger (Kingsclere, UK)
 ]);
+
 const EXCLUDED_UA_PATTERNS = [
     'cloud logger',    // autopo.st and similar stream monitors
     'autopo.st',
@@ -22,13 +24,55 @@ const EXCLUDED_UA_PATTERNS = [
     'pingdom',
     'statuspage',
     'healthcheck',
+    'curl',
+    'python-requests',
+    'crawler',
+    'spider',
+    'bot'
 ];
+
+const BLOCKED_UA_PATTERNS = [
+    'leakix',
+    'l9scan',
+    'siteradar',
+    'shodan',
+    'censys',
+    'palo alto',
+    'zgrab',
+    'masscan',
+    'nmap'
+];
+
+function isBlockedScanner(userAgent) {
+    const ua = (userAgent || '').toLowerCase();
+    return BLOCKED_UA_PATTERNS.some(p => ua.includes(p));
+}
+
+function isDatacenterIp(ip) {
+    if (!ip) return false;
+    const clean = ip.trim();
+    // Google Cloud (34.x, 35.x)
+    if (/^(34|35)\./.test(clean)) return true;
+    // AWS (3.x, 18.x, 44.x, 52.x, 54.x, 63.x)
+    if (/^(3|18|44|52|54|63)\./.test(clean)) return true;
+    // Azure (20.x, 40.x, 51.x)
+    if (/^(20|40|51)\./.test(clean)) return true;
+    // DigitalOcean
+    if (/^(143\.244|164\.90|159\.65|138\.68|167\.99|134\.209|178\.62|104\.248)\./.test(clean)) return true;
+    // Cloudflare edge / worker
+    if (/^(172\.64|104\.(1[6-9]|2[0-9]|3[0-1]|164))\./.test(clean)) return true;
+    return false;
+}
 
 function isExcludedListener(ip, userAgent) {
     if (EXCLUDED_IPS.has(ip)) return true;
+    if (isDatacenterIp(ip)) return true;
     const ua = (userAgent || '').toLowerCase();
     return EXCLUDED_UA_PATTERNS.some(p => ua.includes(p));
 }
+
+// Maximum session lifetime for any continuous streaming connection (12 hours)
+const MAX_SESSION_MS = 12 * 60 * 60 * 1000;
 
 // Persistent keep-alive agent for non-blocking dashboard telemetry
 const heartbeatAgent = new https.Agent({
@@ -175,6 +219,15 @@ const server = http.createServer((req, res) => {
     // Client connection metadata
     const clientIp = (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
     const userAgent = req.headers['user-agent'] || 'Sonos / Audio Player';
+
+    // Block aggressive scanner bots immediately without serving audio
+    if (isBlockedScanner(userAgent)) {
+        console.log(`[Security] Blocked scanner UA "${userAgent}" from IP ${clientIp}`);
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Forbidden\n');
+        return;
+    }
+
     const isSonos = path.includes('sonos');
     const streamName = isSonos ? 'Reservatet.fm LIVE (Sonos)' : channel.name;
 
@@ -192,7 +245,7 @@ const server = http.createServer((req, res) => {
     const isMonitor = isExcludedListener(clientIp, userAgent);
     console.log(`[${isMonitor ? 'Monitor' : 'Client'} Connect - ${streamName}] IP: ${clientIp}, UA: ${userAgent}, active clients: ${channel.clients.size}${isMonitor ? ' [excluded from stats]' : ''}`);
 
-    // Ping dashboard API immediately upon connection
+    // Ping dashboard API immediately upon connection (if not excluded)
     sendHeartbeat(clientIp, userAgent, streamName);
 
     // Proxy audio stream directly from local Icecast instance
@@ -240,17 +293,45 @@ const server = http.createServer((req, res) => {
     icecastReq.end();
 
     let cleanedUp = false;
+    let maxSessionTimer = null;
+
     const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        if (maxSessionTimer) clearTimeout(maxSessionTimer);
         icecastReq.destroy();
         removeClient(resolvedPath, clientObj);
     };
+
+    // Auto-disconnect continuous stream connections after 12 hours (prevents zombie bots)
+    maxSessionTimer = setTimeout(() => {
+        console.log(`[Session Limit 12h - ${streamName}] Closing 12-hour session for IP: ${clientIp}`);
+        try {
+            res.end();
+        } catch (e) {}
+        cleanup();
+    }, MAX_SESSION_MS);
 
     req.on('close', cleanup);
     res.on('close', cleanup);
     res.on('error', cleanup);
 });
+
+// Periodic safety check to prune any client connected > 12 hours
+setInterval(() => {
+    const now = Date.now();
+    for (const [channelKey, channel] of Object.entries(CHANNELS)) {
+        for (const clientObj of channel.clients) {
+            if (now - (clientObj.connectedAt || now) > MAX_SESSION_MS) {
+                console.log(`[Safety Prune] Client ${clientObj.ip} exceeded 12 hours on ${channelKey}. Terminating.`);
+                try {
+                    clientObj.res.end();
+                } catch (e) {}
+                channel.clients.delete(clientObj);
+            }
+        }
+    }
+}, 5 * 60 * 1000);
 
 // Start server on port 8082
 const PORT = 8082;
