@@ -78,8 +78,40 @@ function isExcludedListener(ip, userAgent) {
     return EXCLUDED_UA_PATTERNS.some(p => ua.includes(p));
 }
 
-// Maximum session lifetime for any continuous streaming connection (12 hours)
-const MAX_SESSION_MS = 12 * 60 * 60 * 1000;
+function isBotOrScript(ip, userAgent) {
+    if (isDatacenterIp(ip)) return true;
+    const ua = (userAgent || '').toLowerCase().trim();
+    if (!ua || ua === 'mozilla/5.0') return true;
+    if (ua.includes('sonos')) return false;
+
+    // Automation / scraping tools
+    const botKeywords = [
+        'curl', 'wget', 'python', 'headless', 'selenium', 'puppeteer', 'playwright',
+        'phantomjs', 'zgrab', 'masscan', 'nmap', 'postman', 'insomnia', 'httpclient',
+        'restsharp', 'winhttp', 'go-http-client', 'fasthttp', 'scrapy', 'bot', 'spider', 'crawler',
+        'leakix', 'l9scan', 'siteradar', 'shodan', 'censys', 'shadowserver', 'autopo.st', 'cloud logger'
+    ];
+    if (botKeywords.some(k => ua.includes(k))) return true;
+
+    // Ancient Firefox (< 100) or Chrome (< 100)
+    const ffMatch = ua.match(/(?:firefox|rv:)\/??\s*(\d+)/);
+    if (ffMatch && parseInt(ffMatch[1], 10) > 0 && parseInt(ffMatch[1], 10) < 100) return true;
+
+    if (ua.includes('chrome/') && !ua.includes('smart-tv') && !ua.includes('tizen') && !ua.includes('webos')) {
+        const crMatch = ua.match(/chrome\/(\d+)/);
+        if (crMatch && parseInt(crMatch[1], 10) > 0 && parseInt(crMatch[1], 10) < 100) return true;
+    }
+
+    return false;
+}
+
+// Session lifetimes:
+// - Real hardware devices (Sonos): Unlimited / 24 hours
+// - Legitimate web players and mobile apps: Up to 12 hours
+// - Suspected bots, scrapers and datacenter scripts: 15 minutes max!
+const BOT_SESSION_MS = 15 * 60 * 1000;            // 15 min for bots
+const STANDARD_SESSION_MS = 12 * 60 * 60 * 1000;  // 12 hours for real listeners
+const SONOS_SESSION_MS = 24 * 60 * 60 * 1000;     // 24 hours for Sonos
 
 // Persistent keep-alive agent for non-blocking dashboard telemetry
 const heartbeatAgent = new https.Agent({
@@ -343,35 +375,42 @@ const server = http.createServer((req, res) => {
         notifyDisconnect(clientIp, streamName);
     };
 
-    // Auto-disconnect continuous stream connections after 12 hours (prevents zombie bots)
+    const isBot = isBotOrScript(clientIp, userAgent);
+    const sessionLimitMs = isSonos ? SONOS_SESSION_MS : (isBot ? BOT_SESSION_MS : STANDARD_SESSION_MS);
+
+    // Auto-disconnect: bots and scraper sockets get closed after 15 minutes, while Sonos and real listeners can listen all day
     maxSessionTimer = setTimeout(() => {
-        console.log(`[Session Limit 12h - ${streamName}] Closing 12-hour session for IP: ${clientIp}`);
+        console.log(`[Session Limit ${isBot ? '15m (Bot/Script)' : (isSonos ? '24h (Sonos)' : '12h')} - ${streamName}] Closing session for IP: ${clientIp}`);
         try {
             res.end();
         } catch (e) {}
         cleanup();
-    }, MAX_SESSION_MS);
+    }, sessionLimitMs);
 
     req.on('close', cleanup);
     res.on('close', cleanup);
     res.on('error', cleanup);
 });
 
-// Periodic safety check to prune any client connected > 12 hours
+// Periodic safety check to prune zombie bots (> 15m) and excessively long connections
 setInterval(() => {
     const now = Date.now();
     for (const [channelKey, channel] of Object.entries(CHANNELS)) {
         for (const clientObj of channel.clients) {
-            if (now - (clientObj.connectedAt || now) > MAX_SESSION_MS) {
-                console.log(`[Safety Prune] Client ${clientObj.ip} exceeded 12 hours on ${channelKey}. Terminating.`);
+            const isSonos = (clientObj.streamName || '').includes('Sonos') || (clientObj.userAgent || '').toLowerCase().includes('sonos');
+            const isBot = isBotOrScript(clientObj.ip, clientObj.userAgent);
+            const limit = isSonos ? SONOS_SESSION_MS : (isBot ? BOT_SESSION_MS : STANDARD_SESSION_MS);
+            if (now - (clientObj.connectedAt || now) > limit) {
+                console.log(`[Safety Prune] Client ${clientObj.ip} (${isBot ? 'Bot/Script > 15m' : 'Standard > 12h'}) terminated on ${channelKey}`);
                 try {
                     clientObj.res.end();
                 } catch (e) {}
                 channel.clients.delete(clientObj);
+                notifyDisconnect(clientObj.ip, clientObj.streamName || channel.name);
             }
         }
     }
-}, 5 * 60 * 1000);
+}, 60 * 1000);
 
 // Start server on port 8082
 const PORT = 8082;
