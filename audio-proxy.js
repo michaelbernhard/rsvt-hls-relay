@@ -59,8 +59,8 @@ function isDatacenterIp(ip) {
     if (/^(20|40|51)\./.test(clean)) return true;
     // DigitalOcean
     if (/^(143\.244|164\.90|159\.65|138\.68|167\.99|134\.209|178\.62|104\.248)\./.test(clean)) return true;
-    // Cloudflare edge / worker / WARP (172.64.0.0/13, 162.158.0.0/15, 104.16.0.0/12, 141.101.64.0/18)
-    if (/^(172\.(6[4-9]|7[0-1])|162\.15[89]|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
+    // Cloudflare edge / worker / WARP
+    if (/^(172\.64|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
     // Hurricane Electric / Shadowserver
     if (/^65\.49\./.test(clean)) return true;
     // Akamai / Linode cloud
@@ -75,18 +75,7 @@ function isExcludedListener(ip, userAgent) {
     if (isDatacenterIp(ip)) return true;
     const ua = (userAgent || '').toLowerCase().trim();
     if (ua === 'mozilla/5.0') return true;
-    if (EXCLUDED_UA_PATTERNS.some(p => ua.includes(p))) return true;
-
-    // Check for ancient / spoofed browser User-Agents used by bots (excluding hardware like Sonos)
-    if (!ua.includes('sonos')) {
-        const ffMatch = ua.match(/(?:firefox|rv:)\/??\s*(\d+)/);
-        if (ffMatch && parseInt(ffMatch[1], 10) > 0 && parseInt(ffMatch[1], 10) < 100) return true;
-        if (ua.includes('chrome/') && !ua.includes('smart-tv') && !ua.includes('tizen') && !ua.includes('webos')) {
-            const crMatch = ua.match(/chrome\/(\d+)/);
-            if (crMatch && parseInt(crMatch[1], 10) > 0 && parseInt(crMatch[1], 10) < 100) return true;
-        }
-    }
-    return false;
+    return EXCLUDED_UA_PATTERNS.some(p => ua.includes(p));
 }
 
 // Maximum session lifetime for any continuous streaming connection (12 hours)
