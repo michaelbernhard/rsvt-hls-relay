@@ -247,6 +247,30 @@ setInterval(() => {
 const server = http.createServer((req, res) => {
     const path = req.url.split('?')[0];
     const resolvedPath = ALIASES[path] || path;
+    // Health check endpoint
+    if (path === '/health' || path === '/ping') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('OK\n');
+        return;
+    }
+
+    // Nginx async mirror endpoint for listener connection telemetry (100% out-of-band)
+    if (path.startsWith('/internal/connect')) {
+        const clientIp = (req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+        const userAgent = req.headers['x-user-agent'] || req.headers['user-agent'] || 'Sonos / Audio Player';
+        const streamUri = req.headers['x-stream-uri'] || req.url;
+        const isSonos = (streamUri && streamUri.includes('sonos')) || (userAgent && userAgent.toLowerCase().includes('sonos'));
+        const streamName = (streamUri && streamUri.includes('bloede')) ? 'Bløde Bølger' : (isSonos ? 'Reservatet.fm LIVE (Sonos)' : 'Reservatet.fm LIVE');
+
+        if (!isExcludedListener(clientIp, userAgent)) {
+            sendHeartbeat(clientIp, userAgent, streamName);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('OK\n');
+        return;
+    }
+
     const channel = CHANNELS[resolvedPath];
 
     if (!channel) {
