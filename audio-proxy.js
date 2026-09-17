@@ -257,13 +257,21 @@ const server = http.createServer((req, res) => {
     // Nginx async mirror endpoint for listener connection telemetry (100% out-of-band)
     if (path.startsWith('/internal/connect')) {
         const clientIp = (req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-        const userAgent = req.headers['x-user-agent'] || req.headers['user-agent'] || 'Sonos / Audio Player';
+        const rawUa = (req.headers['x-user-agent'] || req.headers['user-agent'] || '').trim();
+
+        // Drop automated port scanners / probes with missing or dummy user agent
+        if (!rawUa || rawUa.toLowerCase() === 'mozilla/5.0') {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('OK\n');
+            return;
+        }
+
         const streamUri = req.headers['x-stream-uri'] || req.url;
-        const isSonos = (streamUri && streamUri.includes('sonos')) || (userAgent && userAgent.toLowerCase().includes('sonos'));
+        const isSonos = (streamUri && streamUri.includes('sonos')) || rawUa.toLowerCase().includes('sonos');
         const streamName = (streamUri && streamUri.includes('bloede')) ? 'Bløde Bølger' : (isSonos ? 'Reservatet.fm LIVE (Sonos)' : 'Reservatet.fm LIVE');
 
-        if (!isExcludedListener(clientIp, userAgent)) {
-            sendHeartbeat(clientIp, userAgent, streamName);
+        if (!isExcludedListener(clientIp, rawUa)) {
+            sendHeartbeat(clientIp, rawUa, streamName);
         }
 
         res.writeHead(200, { 'Content-Type': 'text/plain' });
