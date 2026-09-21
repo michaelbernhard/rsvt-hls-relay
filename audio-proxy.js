@@ -35,6 +35,8 @@ const BLOCKED_UA_PATTERNS = [
     'leakix',
     'l9scan',
     'siteradar',
+    'scanner',
+    'wp-safe',
     'shodan',
     'censys',
     'palo alto',
@@ -59,8 +61,8 @@ function isDatacenterIp(ip) {
     if (/^(20|40|51)\./.test(clean)) return true;
     // DigitalOcean
     if (/^(143\.244|164\.90|159\.65|138\.68|167\.99|134\.209|178\.62|104\.248)\./.test(clean)) return true;
-    // Cloudflare edge / worker / WARP
-    if (/^(172\.64|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
+    // Cloudflare edge / worker / WARP (172.64.0.0/13 covers 172.64 - 172.71)
+    if (/^(172\.(6[4-9]|7[0-1])|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
     // Hurricane Electric / Shadowserver
     if (/^65\.49\./.test(clean)) return true;
     // Akamai / Linode cloud
@@ -89,7 +91,7 @@ function isBotOrScript(ip, userAgent) {
         'curl', 'wget', 'python', 'headless', 'selenium', 'puppeteer', 'playwright',
         'phantomjs', 'zgrab', 'masscan', 'nmap', 'postman', 'insomnia', 'httpclient',
         'restsharp', 'winhttp', 'go-http-client', 'fasthttp', 'scrapy', 'bot', 'spider', 'crawler',
-        'leakix', 'l9scan', 'siteradar', 'shodan', 'censys', 'shadowserver', 'autopo.st', 'cloud logger'
+        'leakix', 'l9scan', 'siteradar', 'scanner', 'wp-safe', 'shodan', 'censys', 'shadowserver', 'autopo.st', 'cloud logger'
     ];
     if (botKeywords.some(k => ua.includes(k))) return true;
 
@@ -107,10 +109,10 @@ function isBotOrScript(ip, userAgent) {
 
 // Session lifetimes:
 // - Real hardware devices (Sonos): Unlimited / 24 hours
-// - Legitimate web players and mobile apps: Up to 12 hours
+// - Legitimate web players and mobile apps: Up to 16 hours
 // - Suspected bots, scrapers and datacenter scripts: 15 minutes max!
 const BOT_SESSION_MS = 15 * 60 * 1000;            // 15 min for bots
-const STANDARD_SESSION_MS = 12 * 60 * 60 * 1000;  // 12 hours for real listeners
+const STANDARD_SESSION_MS = 16 * 60 * 60 * 1000;  // 16 hours for real listeners
 const SONOS_SESSION_MS = 24 * 60 * 60 * 1000;     // 24 hours for Sonos
 
 // Persistent keep-alive agent for non-blocking dashboard telemetry
@@ -412,7 +414,7 @@ const server = http.createServer((req, res) => {
 
     // Auto-disconnect: bots and scraper sockets get closed after 15 minutes, while Sonos and real listeners can listen all day
     maxSessionTimer = setTimeout(() => {
-        console.log(`[Session Limit ${isBot ? '15m (Bot/Script)' : (isSonos ? '24h (Sonos)' : '12h')} - ${streamName}] Closing session for IP: ${clientIp}`);
+        console.log(`[Session Limit ${isBot ? '15m (Bot/Script)' : (isSonos ? '24h (Sonos)' : '16h')} - ${streamName}] Closing session for IP: ${clientIp}`);
         try {
             res.end();
         } catch (e) {}
@@ -433,7 +435,7 @@ setInterval(() => {
             const isBot = isBotOrScript(clientObj.ip, clientObj.userAgent);
             const limit = isSonos ? SONOS_SESSION_MS : (isBot ? BOT_SESSION_MS : STANDARD_SESSION_MS);
             if (now - (clientObj.connectedAt || now) > limit) {
-                console.log(`[Safety Prune] Client ${clientObj.ip} (${isBot ? 'Bot/Script > 15m' : 'Standard > 12h'}) terminated on ${channelKey}`);
+                console.log(`[Safety Prune] Client ${clientObj.ip} (${isBot ? 'Bot/Script > 15m' : 'Standard > 16h'}) terminated on ${channelKey}`);
                 try {
                     clientObj.res.end();
                 } catch (e) {}

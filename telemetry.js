@@ -35,11 +35,29 @@ const EXCLUDED_UA_PATTERNS = [
     'oai-searchbot',
     'perplexity',
     'applebot',
-    'curl'
+    'curl',
+    'scanner',
+    'wp-safe',
+    'leakix',
+    'l9scan',
+    'siteradar',
+    'shodan',
+    'censys'
 ];
+
+function isDatacenterIp(ip) {
+    if (!ip) return false;
+    const clean = ip.trim();
+    if (/^(34|35|3|18|44|52|54|63|20|40|51)\./.test(clean)) return true;
+    if (/^(143\.244|164\.90|159\.65|138\.68|167\.99|134\.209|178\.62|104\.248)\./.test(clean)) return true;
+    if (/^(172\.(6[4-9]|7[0-1])|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
+    if (/^(65\.49|172\.232|91\.239)\./.test(clean)) return true;
+    return false;
+}
 
 function isExcluded(ip, ua) {
     if (!ip || EXCLUDED_IPS.has(ip)) return true;
+    if (isDatacenterIp(ip)) return true;
     const lower = (ua || '').toLowerCase();
     return EXCLUDED_UA_PATTERNS.some(p => lower.includes(p));
 }
@@ -78,6 +96,31 @@ function sendHeartbeat(clientIp, userAgent, streamName) {
                 'Content-Length': Buffer.byteLength(payload)
             },
             timeout: 4000
+        }, (res) => {
+            res.resume();
+        });
+        req.on('error', () => {});
+        req.on('timeout', () => req.destroy());
+        req.write(payload);
+        req.end();
+    } catch (e) {}
+}
+
+function notifyDisconnect(clientIp, streamName) {
+    try {
+        const payload = JSON.stringify({
+            client: clientIp,
+            stream: streamName,
+            event: 'disconnect'
+        });
+        const req = https.request('https://reservatet.fm/api/dashboard/hls', {
+            method: 'POST',
+            agent: heartbeatAgent,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
+            },
+            timeout: 3000
         }, (res) => {
             res.resume();
         });
@@ -146,12 +189,13 @@ setInterval(() => {
             }
         }
 
-        // Clean up listeners that are no longer connected
+        // Clean up listeners that are no longer connected via active TCP sockets
         for (const [ip, listener] of activeListeners.entries()) {
             if (!currentConnectedIps.has(ip)) {
-                const sessionSecs = Math.round((Date.now() - listener.connectedAt) / 1000);
+                const sessionSecs = Math.round((Date.now() - (listener.connectedAt || Date.now())) / 1000);
                 activeListeners.delete(ip);
-                console.log(`[Listener Disconnect - ${listener.stream}] IP: ${ip}, session: ${sessionSecs}s, remaining listeners: ${activeListeners.size}`);
+                console.log(`[Listener Disconnect - ${listener.stream}] IP: ${ip}, session: ${sessionSecs}s (socket closed), remaining listeners: ${activeListeners.size}`);
+                notifyDisconnect(listener.ip, listener.stream);
             }
         }
 
