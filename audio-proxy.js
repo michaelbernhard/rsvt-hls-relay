@@ -84,7 +84,7 @@ function isBotOrScript(ip, userAgent) {
     if (isDatacenterIp(ip)) return true;
     const ua = (userAgent || '').toLowerCase().trim();
     if (!ua || ua === 'mozilla/5.0') return true;
-    if (ua.includes('sonos')) return false;
+    if (ua.includes('sonos') || ua.includes('tunein')) return false;
 
     // Automation / scraping tools
     const botKeywords = [
