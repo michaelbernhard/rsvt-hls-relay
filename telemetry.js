@@ -14,52 +14,15 @@ const { exec } = require('child_process');
 process.on('uncaughtException', (err) => console.error('[Telemetry UncaughtException]', err));
 process.on('unhandledRejection', (reason) => console.error('[Telemetry UnhandledRejection]', reason));
 
-// Bot and monitor exclusion filter
+// Only exclude internal localhost loopback
 const EXCLUDED_IPS = new Set([
-    '109.175.213.2', // autopo.st Cloud Logger
     '127.0.0.1',
     '::1'
 ]);
 
-const EXCLUDED_UA_PATTERNS = [
-    'cloud logger',
-    'autopo.st',
-    'uptimerobot',
-    'pingdom',
-    'statuspage',
-    'healthcheck',
-    'palo alto',
-    'twitterbot',
-    'grokbot',
-    'meta-externalagent',
-    'oai-searchbot',
-    'perplexity',
-    'applebot',
-    'curl',
-    'scanner',
-    'wp-safe',
-    'leakix',
-    'l9scan',
-    'siteradar',
-    'shodan',
-    'censys'
-];
-
-function isDatacenterIp(ip) {
-    if (!ip) return false;
-    const clean = ip.trim();
-    if (/^(34|35|3|18|44|52|54|63|20|40|51)\./.test(clean)) return true;
-    if (/^(143\.244|164\.90|159\.65|138\.68|167\.99|134\.209|178\.62|104\.248)\./.test(clean)) return true;
-    if (/^(172\.(6[4-9]|7[0-1])|104\.(1[6-9]|2[0-9]|3[0-1]|164)|141\.101)\./.test(clean)) return true;
-    if (/^(65\.49|172\.232|91\.239)\./.test(clean)) return true;
-    return false;
-}
-
 function isExcluded(ip, ua) {
     if (!ip || EXCLUDED_IPS.has(ip)) return true;
-    if (isDatacenterIp(ip)) return true;
-    const lower = (ua || '').toLowerCase();
-    return EXCLUDED_UA_PATTERNS.some(p => lower.includes(p));
+    return false;
 }
 
 // In-memory active listeners tracker: ip -> { ip, userAgent, stream, connectedAt, lastSeen }
