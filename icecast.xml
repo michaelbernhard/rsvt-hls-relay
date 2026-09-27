@@ -33,12 +33,13 @@
         <queue-size>4194304</queue-size>
     </mount>
 
-    <!-- Dedicated Mount for 192k Sonos clean stream with 256K (~11s) burst buffer and zero clock drift -->
+    <!-- Dedicated Mount for 192k Sonos clean stream with 1MB (43.7s) burst buffer and zero clock drift -->
     <mount type="normal">
         <mount-name>/sonos.mp3</mount-name>
         <burst-on-connect>1</burst-on-connect>
-        <burst-size>262144</burst-size>
+        <burst-size>1048576</burst-size>
         <queue-size>4194304</queue-size>
+        <client-timeout>90</client-timeout>
         <source-timeout>30</source-timeout>
     </mount>
 
