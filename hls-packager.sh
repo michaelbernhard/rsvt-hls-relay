@@ -92,9 +92,9 @@ start_sonos_hls_transcoder() {
             -c:a aac -b:a 256k -ar 48000 -ac 2 \
             -f hls \
             -hls_time 10 \
-            -hls_list_size 10 \
-            -hls_delete_threshold 5 \
-            -hls_flags append_list+delete_segments+omit_endlist+independent_segments \
+            -hls_list_size 30 \
+            -hls_delete_threshold 15 \
+            -hls_flags append_list+delete_segments+omit_endlist \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
             "$output_dir/${prefix}.m3u8" || true
