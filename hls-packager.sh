@@ -35,7 +35,7 @@ start_stream_transcoder() {
             -hls_time 3 \
             -hls_list_size 20 \
             -hls_delete_threshold 5 \
-            -hls_flags delete_segments+omit_endlist+independent_segments \
+            -hls_flags append_list+delete_segments+omit_endlist+independent_segments \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
             "$output_dir/${prefix}.m3u8" || true
@@ -64,7 +64,7 @@ start_timeshift_transcoder() {
             -hls_time 6 \
             -hls_list_size 1800 \
             -hls_delete_threshold 10 \
-            -hls_flags delete_segments+omit_endlist+independent_segments+program_date_time \
+            -hls_flags append_list+delete_segments+omit_endlist+independent_segments+program_date_time \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
             "$output_dir/${prefix}.m3u8" || true
@@ -92,9 +92,9 @@ start_sonos_hls_transcoder() {
             -c:a aac -b:a 256k -ar 48000 -ac 2 \
             -f hls \
             -hls_time 10 \
-            -hls_list_size 6 \
-            -hls_delete_threshold 3 \
-            -hls_flags delete_segments+omit_endlist+independent_segments \
+            -hls_list_size 10 \
+            -hls_delete_threshold 5 \
+            -hls_flags append_list+delete_segments+omit_endlist+independent_segments \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
             "$output_dir/${prefix}.m3u8" || true
@@ -105,8 +105,11 @@ start_sonos_hls_transcoder() {
 }
 
 start_stream_transcoder "https://cdn01.radio.cloud/RES-COP-CINURAUDIO01" "/dev/shm/hls" "live" "Reservatet.fm LIVE" &
+sleep 1
 start_stream_transcoder "http://stream.radiojar.com/4hge3m401bpwv" "/dev/shm/hls" "bloede" "Bløde Bølger" &
+sleep 1
 start_timeshift_transcoder "https://cdn01.radio.cloud/RES-COP-CINURAUDIO01" "/dev/shm/hls" &
+sleep 1
 start_sonos_hls_transcoder "https://cdn01.radio.cloud/RES-COP-CINURAUDIO01" "/dev/shm/hls" &
 
 wait
