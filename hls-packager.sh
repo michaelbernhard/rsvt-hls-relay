@@ -74,70 +74,19 @@ start_timeshift_transcoder() {
     done
 }
 
-# Sonos-optimeret HLS: 10s segmenter med 60s forsinket playliste (sikrer altid 60-90s faerdig buffer)
+# Sonos-optimeret HLS: 9.6s frame-aligned segmenter, 60-segment vindue (9.6 min buffer)
+# INGEN pacer – lang playliste + perfekt AAC frame alignment eliminerer drift.
+# 9.6s = præcis 450 AAC frames ved 48kHz (450 × 1024/48000 = 9.600000s) → nul afrundingsfejl.
 start_sonos_hls_transcoder() {
     local stream_url="$1"
     local output_dir="$2"
     local prefix="sonos"
-    local stream_label="Reservatet.fm Sonos HLS (10s segments + 60s ring buffer)"
+    local stream_label="Reservatet.fm Sonos HLS (9.6s frame-aligned, 60-seg window)"
 
     echo "Starting Sonos HLS packager for $stream_label..."
 
-    # Seed sonos_raw.m3u8 from existing sonos.m3u8 to prevent any cold-start gaps
-    if [ -f "$output_dir/${prefix}.m3u8" ] && [ ! -f "$output_dir/${prefix}_raw.m3u8" ]; then
-        cp "$output_dir/${prefix}.m3u8" "$output_dir/${prefix}_raw.m3u8"
-    fi
-
-    # Start background playlist pacer that keeps sonos.m3u8 delayed by 6 segments (60s)
-    # This guarantees Sonos always requests segments that are already 100% written on the RAM disk,
-    # eliminating clock drift underruns and song-transition dropouts completely.
-    python3 -u -c '
-import os, sys, time
-
-raw_pl = sys.argv[1]
-target_pl = sys.argv[2]
-tmp_pl = target_pl + ".tmp"
-delay_segs = int(sys.argv[3])
-
-last_content = ""
-
-while True:
-    try:
-        if os.path.exists(raw_pl):
-            with open(raw_pl, "r") as f:
-                content = f.read()
-            if content and content != last_content:
-                lines = content.splitlines()
-                header = []
-                segments = []
-                current_seg = []
-                for line in lines:
-                    if line.startswith("#EXTINF") or (current_seg and not line.startswith("#")):
-                        current_seg.append(line)
-                        if len(current_seg) == 2:
-                            segments.append(current_seg)
-                            current_seg = []
-                    elif not segments:
-                        header.append(line)
-                
-                if len(segments) > delay_segs:
-                    delayed_segs = segments[:-delay_segs]
-                else:
-                    delayed_segs = segments
-                
-                out_lines = header[:]
-                for seg in delayed_segs:
-                    out_lines.extend(seg)
-                out_content = "\n".join(out_lines) + "\n"
-                
-                with open(tmp_pl, "w") as f:
-                    f.write(out_content)
-                os.replace(tmp_pl, target_pl)
-                last_content = content
-    except Exception as e:
-        pass
-    time.sleep(1)
-' "$output_dir/${prefix}_raw.m3u8" "$output_dir/${prefix}.m3u8" 6 &
+    # Clean up any leftover raw playlist from the old pacer
+    rm -f "$output_dir/${prefix}_raw.m3u8" "$output_dir/${prefix}_raw.m3u8.tmp"
 
     while true; do
         ffmpeg -hide_banner -loglevel warning \
@@ -147,13 +96,13 @@ while True:
             -i "$stream_url" \
             -c:a aac -b:a 256k -ar 48000 -ac 2 \
             -f hls \
-            -hls_time 10 \
-            -hls_list_size 36 \
-            -hls_delete_threshold 24 \
+            -hls_time 9.6 \
+            -hls_list_size 60 \
+            -hls_delete_threshold 40 \
             -hls_flags append_list+delete_segments+omit_endlist+temp_file \
             -hls_segment_type mpegts \
             -hls_segment_filename "$output_dir/${prefix}_%d.ts" \
-            "$output_dir/${prefix}_raw.m3u8" || true
+            "$output_dir/${prefix}.m3u8" || true
 
         echo "[$stream_label] Transcoder disconnected. Auto-recovering in 1s..."
         sleep 1
